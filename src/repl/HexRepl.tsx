@@ -403,7 +403,10 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
 
       await appendHistory(prompt, finalText, totalCost, turns)
     } catch (err) {
-      dispatch({ type: 'ADD_ERROR', content: err instanceof Error ? err.message : String(err) })
+      // Don't show error for aborts — handleSubmit already showed "Interrupted"
+      if (!controller.signal.aborted) {
+        dispatch({ type: 'ADD_ERROR', content: err instanceof Error ? err.message : String(err) })
+      }
       dispatch({ type: 'END_STREAMING', messageId, costUsd: 0, turns: 0 })
     }
 
@@ -665,8 +668,11 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
     if (prompt === '__INTERRUPT__' || prompt === '__ESC__') {
       if (state.isStreaming) {
         abortControllerRef.current?.abort()
+        // Force end streaming state immediately
+        if (state.currentAssistantId) {
+          dispatch({ type: 'END_STREAMING', messageId: state.currentAssistantId, costUsd: 0, turns: 0 })
+        }
         dispatch({ type: 'ADD_SYSTEM', content: 'Interrupted' })
-        // Clear queue too
         queueRef.current = []
         setQueueSize(0)
         return
