@@ -22,10 +22,7 @@ export class ClaudeCLIProvider implements HexProvider {
     const apiKey = process.env['ANTHROPIC_API_KEY']
 
     if (token) {
-      this.client = new Anthropic({
-        apiKey: token,
-        defaultHeaders: { 'Authorization': `Bearer ${token}` },
-      })
+      this.client = new Anthropic({ authToken: token })
     } else if (apiKey) {
       this.client = new Anthropic({ apiKey })
     } else {

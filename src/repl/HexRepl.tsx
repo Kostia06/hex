@@ -203,7 +203,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
           const token = await getSubscriptionToken()
           const apiKey = process.env['ANTHROPIC_API_KEY']
           const inspClient = token
-            ? new Anthropic({ apiKey: token, defaultHeaders: { 'Authorization': `Bearer ${token}` } })
+            ? new Anthropic({ authToken: token })
             : new Anthropic({ apiKey: apiKey ?? '' })
 
           // Detect file from selected elements or default to index.html
@@ -556,7 +556,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
               const token = await getSubscriptionToken()
               const ak = process.env['ANTHROPIC_API_KEY']
               const ic = token
-                ? new Anthropic({ apiKey: token, defaultHeaders: { 'Authorization': `Bearer ${token}` } })
+                ? new Anthropic({ authToken: token })
                 : new Anthropic({ apiKey: ak ?? '' })
 
               const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'

@@ -29,3 +29,7 @@ actually make it redish
 make bg in index.html towards red instead of pink
 make bg in index.html towards red instead of pink
 open index.html and inspect it
+open index.html and inspect it
+make bg in index.html towards red instead of pink
+make bg in index.html towards red instead of pink
+make bg in index.html towards red instead of pink
