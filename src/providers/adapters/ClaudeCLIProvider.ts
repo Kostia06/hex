@@ -133,16 +133,19 @@ export class ClaudeCLIProvider implements HexProvider {
           const status = err?.status ?? err?.error?.status
           const errMsg = err?.error?.error?.message ?? err?.message ?? String(err)
 
-          if ((status === 429 || errMsg.includes('rate_limit')) && attempt < 2) {
-            const wait = (attempt + 1) * 10
-            yield { type: 'token', token: `\n[Rate limited \u2014 waiting ${wait}s...]\n` }
+          if ((status === 429 || errMsg.includes('rate_limit') || errMsg === 'Error') && attempt < 2) {
+            const wait = (attempt + 1) * 30
+            yield { type: 'token', token: `\n[Rate limited \u2014 retrying in ${wait}s...]\n` }
             await new Promise(r => setTimeout(r, wait * 1000))
             assistantText = ''
             toolUses.length = 0
             continue
           }
 
-          yield { type: 'error', error: `API: ${errMsg}` }
+          const friendly = status === 429 || errMsg.includes('rate_limit') || errMsg === 'Error'
+            ? 'Rate limited. Wait a moment and try again.'
+            : errMsg
+          yield { type: 'error', error: friendly }
           return
         }
       }
