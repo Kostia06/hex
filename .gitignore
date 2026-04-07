@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp.*
+.yarn/*
+
+# Build
+dist/
+build/
+.output/
+.svelte-kit/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+
+# Cache
+.cache/
+.turbo/
