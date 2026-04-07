@@ -38,3 +38,12 @@ coverage/
 # Cache
 .cache/
 .turbo/
+
+# Hex
+.hex/worktrees
+.hex/dictionary.json
+.hex/cost-log.json
+.hex/scrubber.log
+.hex/test-results.json
+.hex/needs-review.json
+hex-manifest.json
