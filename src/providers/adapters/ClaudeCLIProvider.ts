@@ -99,52 +99,58 @@ export class ClaudeCLIProvider implements HexProvider {
     const maxTurns = opts.maxTurns ?? 15
 
     while (turn < maxTurns) {
-      let stream
-      // Retry on rate limit (429) with backoff
+      let assistantText = ''
+      const toolUses: Array<{ id: string; name: string; input: Record<string, unknown> }> = []
+      let finalMessage: Anthropic.Message | null = null
+
+      // Retry loop for rate limits
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          stream = client.messages.stream({
+          const stream = client.messages.stream({
             model,
             max_tokens: 8192,
             system: systemPrompt,
             messages: this.messages,
             tools,
           })
-          break
+
+          for await (const event of stream) {
+            if (event.type === 'content_block_delta') {
+              if (event.delta.type === 'text_delta') {
+                assistantText += event.delta.text
+                opts.onToken?.(event.delta.text)
+                yield { type: 'token', token: event.delta.text }
+              }
+            }
+            if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
+              toolUses.push({ id: event.content_block.id, name: event.content_block.name, input: {} })
+            }
+          }
+
+          finalMessage = await stream.finalMessage()
+          break // success
         } catch (err: any) {
-          if (err?.status === 429 && attempt < 2) {
-            const wait = (attempt + 1) * 5000
-            yield { type: 'token', token: `\n[Rate limited — waiting ${wait / 1000}s...]\n` }
-            await new Promise(r => setTimeout(r, wait))
+          const status = err?.status ?? err?.error?.status
+          const errMsg = err?.error?.error?.message ?? err?.message ?? String(err)
+
+          if ((status === 429 || errMsg.includes('rate_limit')) && attempt < 2) {
+            const wait = (attempt + 1) * 10
+            yield { type: 'token', token: `\n[Rate limited \u2014 waiting ${wait}s...]\n` }
+            await new Promise(r => setTimeout(r, wait * 1000))
+            assistantText = ''
+            toolUses.length = 0
             continue
           }
-          const msg = err?.error?.error?.message ?? err?.message ?? String(err)
-          yield { type: 'error', error: `API error: ${msg}` }
+
+          yield { type: 'error', error: `API: ${errMsg}` }
           return
         }
       }
-      if (!stream) {
-        yield { type: 'error', error: 'Failed after 3 retries' }
+
+      if (!finalMessage) {
+        yield { type: 'error', error: 'Failed after retries' }
         return
       }
-
-      let assistantText = ''
-      const toolUses: Array<{ id: string; name: string; input: Record<string, unknown> }> = []
-
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta') {
-          if (event.delta.type === 'text_delta') {
-            assistantText += event.delta.text
-            opts.onToken?.(event.delta.text)
-            yield { type: 'token', token: event.delta.text }
-          }
-        }
-        if (event.type === 'content_block_start' && event.content_block.type === 'tool_use') {
-          toolUses.push({ id: event.content_block.id, name: event.content_block.name, input: {} })
-        }
-      }
-
-      const finalMessage = await stream.finalMessage()
       totalInput += finalMessage.usage.input_tokens
       totalOutput += finalMessage.usage.output_tokens
 

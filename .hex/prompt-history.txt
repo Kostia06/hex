@@ -22,3 +22,6 @@ open index.html and inspect it
 open index.html and inspect it
 open index.html and inspect it
 actually make it redish
+open index.html and inspect it
+actually make it redish
+actually make it redish
