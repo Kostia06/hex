@@ -3,6 +3,7 @@
 import React, { useState, useEffect, memo } from 'react'
 import { Box, Text } from 'ink'
 import { Spinner } from './Spinner.tsx'
+import { DiffView } from './DiffView.tsx'
 import type { HexMessage, ToolCall } from './replState.ts'
 
 // Format tool input cleanly
@@ -57,11 +58,23 @@ const ToolCallLine = memo(function ToolCallLine({ tool }: { tool: ToolCall }) {
     )
   }
 
+  // Check if result contains a diff
+  let editDiff: { file: string; old: string; new: string } | null = null
+  if (tool.result) {
+    try {
+      const parsed = JSON.parse(tool.result)
+      if (parsed._hexEdit) editDiff = parsed
+    } catch { /* not JSON */ }
+  }
+
   return (
-    <Box>
-      <Text color={tool.status === 'done' ? 'green' : 'red'}>{tool.status === 'done' ? '\u2713' : '\u2717'} </Text>
-      <Text dimColor>{tool.name}</Text>
-      {summary && <Text color={isBash ? 'white' : undefined} dimColor={!isBash}>  {summary}</Text>}
+    <Box flexDirection="column">
+      <Box>
+        <Text color={tool.status === 'done' ? 'green' : 'red'}>{tool.status === 'done' ? '\u2713' : '\u2717'} </Text>
+        <Text dimColor>{tool.name}</Text>
+        {summary && <Text color={isBash ? 'white' : undefined} dimColor={!isBash}>  {summary}</Text>}
+      </Box>
+      {editDiff && <DiffView filePath={editDiff.file} oldStr={editDiff.old} newStr={editDiff.new} />}
     </Box>
   )
 })

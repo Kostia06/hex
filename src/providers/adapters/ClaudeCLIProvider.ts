@@ -99,13 +99,34 @@ export class ClaudeCLIProvider implements HexProvider {
     const maxTurns = opts.maxTurns ?? 15
 
     while (turn < maxTurns) {
-      const stream = client.messages.stream({
-        model,
-        max_tokens: 8192,
-        system: systemPrompt,
-        messages: this.messages,
-        tools,
-      })
+      let stream
+      // Retry on rate limit (429) with backoff
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          stream = client.messages.stream({
+            model,
+            max_tokens: 8192,
+            system: systemPrompt,
+            messages: this.messages,
+            tools,
+          })
+          break
+        } catch (err: any) {
+          if (err?.status === 429 && attempt < 2) {
+            const wait = (attempt + 1) * 5000
+            yield { type: 'token', token: `\n[Rate limited — waiting ${wait / 1000}s...]\n` }
+            await new Promise(r => setTimeout(r, wait))
+            continue
+          }
+          const msg = err?.error?.error?.message ?? err?.message ?? String(err)
+          yield { type: 'error', error: `API error: ${msg}` }
+          return
+        }
+      }
+      if (!stream) {
+        yield { type: 'error', error: 'Failed after 3 retries' }
+        return
+      }
 
       let assistantText = ''
       const toolUses: Array<{ id: string; name: string; input: Record<string, unknown> }> = []

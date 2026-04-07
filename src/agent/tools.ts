@@ -103,7 +103,13 @@ async function editFile(input: Record<string, unknown>, opts: ToolOptions): Prom
       await scanFile(filePath, fileEntry.token, opts.dict)
     }
 
-    return `Edited: ${filePath}`
+    // Return JSON with diff data for the REPL to render
+    return JSON.stringify({
+      _hexEdit: true,
+      file: filePath,
+      old: oldStr,
+      new: newStr,
+    })
   } catch {
     return `ERROR: Could not read ${filePath}`
   }
