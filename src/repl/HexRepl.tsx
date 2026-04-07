@@ -22,8 +22,7 @@ import { HexWatcher } from '../scanner/Watcher.ts'
 import { ProviderRegistry } from '../providers/registry.ts'
 import { resolveProvider } from '../providers/resolver.ts'
 import type { HexProvider } from '../providers/types.ts'
-import { getSubscriptionToken } from '../providers/auth.ts'
-import Anthropic from '@anthropic-ai/sdk'
+// auth + SDK used by providers, not directly here
 import { HexManifest } from '../inspector/Manifest.ts'
 // import { injectDirectory } from '../inspector/Injector.ts'
 import { HexDevServer } from '../inspector/DevServer.ts'
@@ -196,90 +195,14 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
         dispatch({ type: 'SET_INPUT', value: `${browserPrompt} \u2192 [${label}]` })
         dispatch({ type: 'SUBMIT_INPUT' })
 
-        const mid = crypto.randomUUID()
-        dispatch({ type: 'START_STREAMING', messageId: mid })
+        // Route through submitPrompt which uses subprocess (handles OAuth)
+        const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
+        const fullPrompt = `Edit ${targetFile}: ${browserPrompt}\nSelected elements: ${elementDetails}${devtoolsContext ? '\nDevtools: ' + devtoolsContext : ''}`
 
-        try {
-          const token = await getSubscriptionToken()
-          const apiKey = process.env['ANTHROPIC_API_KEY']
-          const inspClient = token
-            ? new Anthropic({ authToken: token })
-            : new Anthropic({ apiKey: apiKey ?? '' })
-
-          // Detect file from selected elements or default to index.html
-          const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
-          const targetLines = hexIds.map(h => (h as any).line as number).filter(Boolean)
-
-          let fileContent = ''
-          try { fileContent = await Bun.file(path.join(cwd, targetFile)).text() } catch { /* */ }
-
-          // For large files, send only relevant section around selected lines
-          let contextContent = fileContent
-          if (targetLines.length > 0 && fileContent.split('\n').length > 100) {
-            const lines = fileContent.split('\n')
-            const minLine = Math.max(0, Math.min(...targetLines) - 15)
-            const maxLine = Math.min(lines.length, Math.max(...targetLines) + 15)
-            contextContent = lines.slice(minLine, maxLine).map((l, i) => `${minLine + i + 1}: ${l}`).join('\n')
-          }
-
-          const inspTools: Anthropic.Tool[] = [
-            { name: 'Edit', description: `Replace old_string with new_string in ${targetFile}`, input_schema: { type: 'object' as const, properties: { old_string: { type: 'string' }, new_string: { type: 'string' } }, required: ['old_string', 'new_string'] } },
-          ]
-
-          const lineHint = targetLines.length > 0 ? ` (around line ${targetLines[0]})` : ''
-          const inspMsgs: Anthropic.MessageParam[] = [{ role: 'user', content: `${targetFile}${lineHint}:\n\`\`\`html\n${contextContent}\n\`\`\`\n\nSelected:\n${elementDetails}\n\nDo: ${browserPrompt}\n\nUse Edit tool. old_string must match the file exactly.${devtoolsContext ? '\n\nBrowser devtools:\n' + devtoolsContext : ''}` }]
-          let inspTurns = 0, inspInput = 0, inspOutput = 0
-
-          for (let t = 0; t < 2; t++) {
-            const stream = inspClient.messages.stream({
-              model: 'claude-haiku-4-5-20251001',
-              max_tokens: 4096,
-              system: 'You edit index.html. Use the Edit tool with old_string/new_string. No explanation. Just edit.',
-              messages: inspMsgs,
-              tools: inspTools,
-            })
-
-            for await (const event of stream) {
-              if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-                dispatch({ type: 'APPEND_TOKEN', messageId: mid, token: event.delta.text })
-                server.broadcast({ type: 'agent-token', text: event.delta.text })
-              }
-            }
-
-            const final = await stream.finalMessage()
-            inspInput += final.usage.input_tokens
-            inspOutput += final.usage.output_tokens
-            inspMsgs.push({ role: 'assistant', content: final.content })
-            inspTurns++
-
-            const toolBlocks = final.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
-            if (toolBlocks.length === 0 || final.stop_reason !== 'tool_use') break
-
-            const results: Anthropic.ToolResultBlockParam[] = []
-            for (const tu of toolBlocks) {
-              const input = (tu.input ?? {}) as Record<string, unknown>
-              // Target the detected file
-              input['file_path'] = input['file_path'] ?? path.join(cwd, targetFile)
-              input['path'] = input['path'] ?? path.join(cwd, targetFile)
-              dispatch({ type: 'ADD_TOOL_CALL', messageId: mid, tool: { name: 'Edit', input, status: 'done' } })
-
-              const { executeTool } = await import('../agent/tools.ts')
-              const result = await executeTool('edit_file', input, {
-                scrubber: (await import('../security/Scrubber.ts')).scrub,
-                dict: null as any, codec: null as any, cwd,
-              })
-              results.push({ type: 'tool_result', tool_use_id: tu.id, content: result })
-            }
-            inspMsgs.push({ role: 'user', content: results })
-          }
-
-          const costUsd = (inspInput / 1e6 * 0.8) + (inspOutput / 1e6 * 4)
-          dispatch({ type: 'END_STREAMING', messageId: mid, costUsd, turns: inspTurns })
-          server.broadcast({ type: 'agent-token', text: '\n\u2713 Done' })
+        if (submitRef.current) {
+          await submitRef.current(fullPrompt)
+          server.broadcast({ type: 'agent-token', text: '\u2713 Done' })
           setTimeout(() => server.broadcast({ type: 'reload' }), 800)
-        } catch (err) {
-          dispatch({ type: 'ADD_ERROR', content: err instanceof Error ? err.message : String(err) })
-          dispatch({ type: 'END_STREAMING', messageId: mid, costUsd: 0, turns: 0 })
         }
       },
     })
@@ -546,73 +469,13 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
               if ((h as any).outerHTML) parts.push(`html: ${(h as any).outerHTML}`)
               return parts.join(' ')
             }).join('\n')
-            dispatch({ type: 'SET_INPUT', value: `${browserPrompt} \u2192 [${label}]` })
-            dispatch({ type: 'SUBMIT_INPUT' })
+            const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
+            const fullPrompt = `Edit ${targetFile}: ${browserPrompt}\nSelected elements: ${elementDetails}${devtoolsContext ? '\nDevtools: ' + devtoolsContext : ''}`
 
-            const mid = crypto.randomUUID()
-            dispatch({ type: 'START_STREAMING', messageId: mid })
-
-            try {
-              const token = await getSubscriptionToken()
-              const ak = process.env['ANTHROPIC_API_KEY']
-              const ic = token
-                ? new Anthropic({ authToken: token })
-                : new Anthropic({ apiKey: ak ?? '' })
-
-              const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
-              const targetLines = hexIds.map(h => (h as any).line as number).filter(Boolean)
-
-              let fileContent = ''
-              try { fileContent = await Bun.file(path.join(cwd, targetFile)).text() } catch { /* */ }
-
-              let contextContent = fileContent
-              if (targetLines.length > 0 && fileContent.split('\n').length > 100) {
-                const lines = fileContent.split('\n')
-                const minLine = Math.max(0, Math.min(...targetLines) - 15)
-                const maxLine = Math.min(lines.length, Math.max(...targetLines) + 15)
-                contextContent = lines.slice(minLine, maxLine).map((l, i) => `${minLine + i + 1}: ${l}`).join('\n')
-              }
-
-              const editTool: Anthropic.Tool[] = [
-                { name: 'Edit', description: `Replace old_string with new_string in ${targetFile}`, input_schema: { type: 'object' as const, properties: { old_string: { type: 'string' }, new_string: { type: 'string' } }, required: ['old_string', 'new_string'] } },
-              ]
-
-              const lineHint = targetLines.length > 0 ? ` (around line ${targetLines[0]})` : ''
-              const im: Anthropic.MessageParam[] = [{ role: 'user', content: `${targetFile}${lineHint}:\n\`\`\`html\n${contextContent}\n\`\`\`\n\nSelected:\n${elementDetails}\n\nDo: ${browserPrompt}\n\nUse Edit tool. old_string must match the file exactly.${devtoolsContext ? '\n\nBrowser devtools:\n' + devtoolsContext : ''}` }]
-              let turns = 0, inp = 0, out = 0
-
-              for (let t = 0; t < 2; t++) {
-                const s = ic.messages.stream({ model: 'claude-haiku-4-5-20251001', max_tokens: 4096, system: `You edit ${targetFile}. Use Edit tool with old_string/new_string. No explanation. Just edit.`, messages: im, tools: editTool })
-                for await (const ev of s) {
-                  if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
-                    dispatch({ type: 'APPEND_TOKEN', messageId: mid, token: ev.delta.text })
-                    inspectServer.broadcast({ type: 'agent-token', text: ev.delta.text })
-                  }
-                }
-                const fm = await s.finalMessage()
-                inp += fm.usage.input_tokens; out += fm.usage.output_tokens
-                im.push({ role: 'assistant', content: fm.content }); turns++
-                const tus = fm.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
-                if (tus.length === 0 || fm.stop_reason !== 'tool_use') break
-                const rs: Anthropic.ToolResultBlockParam[] = []
-                for (const tu of tus) {
-                  const input = (tu.input ?? {}) as Record<string, unknown>
-                  input['file_path'] = input['file_path'] ?? path.join(cwd, targetFile)
-                  input['path'] = input['path'] ?? path.join(cwd, targetFile)
-                  dispatch({ type: 'ADD_TOOL_CALL', messageId: mid, tool: { name: 'Edit', input, status: 'done' } })
-                  const { executeTool } = await import('../agent/tools.ts')
-                  const r = await executeTool('edit_file', input, { scrubber: (await import('../security/Scrubber.ts')).scrub, dict: null as any, codec: null as any, cwd })
-                  rs.push({ type: 'tool_result', tool_use_id: tu.id, content: r })
-                }
-                im.push({ role: 'user', content: rs })
-              }
-
-              dispatch({ type: 'END_STREAMING', messageId: mid, costUsd: (inp / 1e6 * 0.8) + (out / 1e6 * 4), turns })
-              inspectServer.broadcast({ type: 'agent-token', text: '\n\u2713 Done' })
+            if (submitRef.current) {
+              await submitRef.current(fullPrompt)
+              inspectServer.broadcast({ type: 'agent-token', text: '\u2713 Done' })
               setTimeout(() => inspectServer.broadcast({ type: 'reload' }), 800)
-            } catch (err) {
-              dispatch({ type: 'ADD_ERROR', content: err instanceof Error ? err.message : String(err) })
-              dispatch({ type: 'END_STREAMING', messageId: mid, costUsd: 0, turns: 0 })
             }
           },
         })
