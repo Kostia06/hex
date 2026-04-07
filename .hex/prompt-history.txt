@@ -1,0 +1,22 @@
+open index.html  and inspect it
+open index.html  and inspect it
+The user selected [button.button"Secondary Button"] in the browser and wants: make it red
+Edit the source files. Be minimal.
+Edit the source files. Be minimal.
+open index.html  and inspect it
+/inspect index.html
+/inspect ./index.html
+open index.html and inspect it
+/inspect ./index.html
+open index.html
+/inspect index.html
+/in
+/inspect index.html
+open index.html and inspect it
+open index.html and inspect it
+open index.html and inspect it
+open index.html and inspect it
+open index.html and inspect it
+open index.html and inspect it
+open index.html and inspect it
+open index.html and inspect it

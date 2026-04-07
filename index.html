@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="format-detection" content="telephone=no">
+  <title>Hex Inspector Demo</title>
+  <style>
+    :root {
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --text-sm: 13px;
+      --text-base: 15px;
+      --text-lg: 17px;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-700: #374151;
+      --gray-800: #1f2937;
+      --gray-900: #111827;
+      --primary-500: #3b82f6;
+      --white: #ffffff;
+      --radius-lg: 14px;
+      --touch-min: 44px;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: var(--text-base);
+      line-height: 1.5;
+      -webkit-text-size-adjust: 100%;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      min-height: 100dvh;
+      background: var(--gray-50);
+      color: var(--gray-900);
+      padding: var(--space-4);
+    }
+
+    header {
+      margin-bottom: var(--space-6);
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: var(--space-2);
+    }
+
+    p {
+      color: var(--gray-700);
+      margin-bottom: var(--space-4);
+    }
+
+    .section {
+      margin-bottom: var(--space-6);
+    }
+
+    .section-title {
+      font-size: var(--text-lg);
+      font-weight: 600;
+      margin-bottom: var(--space-3);
+      color: var(--gray-800);
+    }
+
+    .card {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      margin-bottom: var(--space-4);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: var(--touch-min);
+      padding: var(--space-3) var(--space-5);
+      font-size: var(--text-base);
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius-lg);
+      cursor: pointer;
+      transition: transform 100ms, opacity 100ms;
+    }
+
+    .button-primary {
+      background: #7c3aed;
+      color: var(--white);
+    }
+
+    .button-primary:active {
+      transform: scale(0.97);
+    }
+
+    .button-secondary {
+      background: #7c3aed;
+      color: var(--white);
+    }
+
+    .button-secondary:active {
+      background: #6d28d9;
+    }
+
+    .input-group {
+      margin-bottom: var(--space-4);
+    }
+
+    .input-label {
+      display: block;
+      margin-bottom: var(--space-2);
+      font-size: var(--text-sm);
+      font-weight: 500;
+      color: var(--gray-700);
+    }
+
+    .input {
+      width: 100%;
+      min-height: var(--touch-min);
+      padding: var(--space-3) var(--space-4);
+      font-size: 16px;
+      font-family: inherit;
+      color: var(--gray-900);
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius-lg);
+      appearance: none;
+    }
+
+    .input:focus {
+      outline: none;
+      border-color: var(--primary-500);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .list {
+      background: var(--white);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    .list-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 48px;
+      padding: var(--space-4);
+      border-bottom: 1px solid var(--gray-100);
+      cursor: pointer;
+      transition: background 100ms;
+    }
+
+    .list-item:last-child {
+      border-bottom: none;
+    }
+
+    .list-item:active {
+      background: var(--gray-50);
+    }
+
+    .list-item-title {
+      font-weight: 500;
+      color: var(--gray-900);
+    }
+
+    .list-item-subtitle {
+      font-size: var(--text-sm);
+      color: var(--gray-700);
+      margin-top: var(--space-2);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: var(--space-2) var(--space-3);
+      font-size: var(--text-sm);
+      font-weight: 600;
+      background: var(--gray-100);
+      color: var(--gray-700);
+      border-radius: 999px;
+    }
+
+    .badge-primary {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-4);
+    }
+
+    @media (max-width: 480px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header data-hex-id="hex-header-001" data-hex-file="index.html" data-hex-line="220">
+    <h1 data-hex-id="hex-h1-001" data-hex-file="index.html" data-hex-line="221">Hex Inspector Demo</h1>
+    <p data-hex-id="hex-p-001" data-hex-file="index.html" data-hex-line="222">Use the inspector to select elements and view their properties.</p>
+  </header>
+
+  <div data-hex-id="hex-div-001" data-hex-file="index.html" data-hex-line="225" class="section">
+    <div data-hex-id="hex-div-002" data-hex-file="index.html" data-hex-line="226" class="section-title">Buttons</div>
+    <div data-hex-id="hex-div-003" data-hex-file="index.html" data-hex-line="227" class="card">
+      <button data-hex-id="hex-button-001" data-hex-file="index.html" data-hex-line="228" class="button button-primary">Primary Button</button>
+      <button data-hex-id="hex-button-002" data-hex-file="index.html" data-hex-line="229" class="button button-secondary" style="margin-left: 8px;">Secondary Button</button>
+    </div>
+  </div>
+
+  <div data-hex-id="hex-div-004" data-hex-file="index.html" data-hex-line="225" class="section">
+    <div data-hex-id="hex-div-005" data-hex-file="index.html" data-hex-line="226" class="section-title">Form Inputs</div>
+    <div data-hex-id="hex-div-006" data-hex-file="index.html" data-hex-line="227" class="card" style="background: red; color: white;">
+      <div data-hex-id="hex-div-007" data-hex-file="index.html" data-hex-line="236" class="input-group">
+        <label class="input-label">Email Address</label>
+        <input data-hex-id="hex-input-001" data-hex-file="index.html" data-hex-line="238" type="email" class="input" placeholder="you@example.com" />
+      </div>
+      <div data-hex-id="hex-div-008" data-hex-file="index.html" data-hex-line="236" class="input-group">
+        <label class="input-label">Message</label>
+        <textarea data-hex-id="hex-textarea-001" data-hex-file="index.html" data-hex-line="242" class="input" placeholder="Enter your message..." style="min-height: 100px; resize: vertical;"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div data-hex-id="hex-div-009" data-hex-file="index.html" data-hex-line="225" class="section">
+    <div data-hex-id="hex-div-010" data-hex-file="index.html" data-hex-line="226" class="section-title">Lists</div>
+    <div data-hex-id="hex-div-011" data-hex-file="index.html" data-hex-line="249" class="list">
+      <div data-hex-id="hex-div-012" data-hex-file="index.html" data-hex-line="250" class="list-item" style="background: #ffe5e5;">
+        <div data-hex-id="hex-div-013" data-hex-file="index.html" data-hex-line="251">
+          <div data-hex-id="hex-div-014" data-hex-file="index.html" data-hex-line="252" class="list-item-title">Item One</div>
+          <div data-hex-id="hex-div-015" data-hex-file="index.html" data-hex-line="253" class="list-item-subtitle">Description for item one</div>
+        </div>
+        <div data-hex-id="hex-div-016" data-hex-file="index.html" data-hex-line="255" class="badge">Active</div>
+      </div>
+      <div data-hex-id="hex-div-017" data-hex-file="index.html" data-hex-line="250" class="list-item" style="background: #e5f5ff;">
+        <div data-hex-id="hex-div-018" data-hex-file="index.html" data-hex-line="251">
+          <div data-hex-id="hex-div-019" data-hex-file="index.html" data-hex-line="252" class="list-item-title">Item Two</div>
+          <div data-hex-id="hex-div-020" data-hex-file="index.html" data-hex-line="253" class="list-item-subtitle">Description for item two</div>
+        </div>
+        <div data-hex-id="hex-div-021" data-hex-file="index.html" data-hex-line="262" class="badge badge-primary">New</div>
+      </div>
+      <div data-hex-id="hex-div-022" data-hex-file="index.html" data-hex-line="250" class="list-item" style="background: #e5ffe5;">
+        <div data-hex-id="hex-div-023" data-hex-file="index.html" data-hex-line="251">
+          <div data-hex-id="hex-div-024" data-hex-file="index.html" data-hex-line="252" class="list-item-title">Item Three</div>
+          <div data-hex-id="hex-div-025" data-hex-file="index.html" data-hex-line="253" class="list-item-subtitle">Description for item three</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div data-hex-id="hex-div-026" data-hex-file="index.html" data-hex-line="225" class="section" style="background: green; color: white;">
+    <div data-hex-id="hex-div-027" data-hex-file="index.html" data-hex-line="226" class="section-title">Grid Layout</div>
+    <div data-hex-id="hex-div-028" data-hex-file="index.html" data-hex-line="275" class="grid">
+      <div data-hex-id="hex-div-029" data-hex-file="index.html" data-hex-line="227" class="card">
+        <h3 data-hex-id="hex-h3-001" data-hex-file="index.html" data-hex-line="277" style="font-weight: 600; margin-bottom: 8px; color: black;">Card 1</h3>
+        <p data-hex-id="hex-p-002" data-hex-file="index.html" data-hex-line="278" style="font-size: var(--text-sm); color: var(--gray-700);">This is a card in a grid layout.</p>
+      </div>
+      <div data-hex-id="hex-div-030" data-hex-file="index.html" data-hex-line="227" class="card">
+        <h3 data-hex-id="hex-h3-002" data-hex-file="index.html" data-hex-line="277" style="font-weight: 600; margin-bottom: 8px; color: black;">Card 2</h3>
+        <p data-hex-id="hex-p-003" data-hex-file="index.html" data-hex-line="278" style="font-size: var(--text-sm); color: var(--gray-700);">This is another card in the grid.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer data-hex-id="hex-footer-001" data-hex-file="index.html" data-hex-line="287" style="margin-top: var(--space-6); padding-top: var(--space-6); border-top: 1px solid var(--gray-200); text-align: center; color: var(--gray-700); font-size: var(--text-sm);">
+    <p data-hex-id="hex-p-004" data-hex-file="index.html" data-hex-line="222">Hex Inspector v1.0</p>
+  </footer>
+</body>
+</html>

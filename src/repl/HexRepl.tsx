@@ -179,7 +179,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
       manifest,
       dict: dictRef.current,
       codec: codecRef.current,
-      onPrompt: async (hexIds: HexIdPayload[], browserPrompt: string) => {
+      onPrompt: async (hexIds: HexIdPayload[], browserPrompt: string, devtoolsContext?: string) => {
         const label = hexIds.map(h => {
           const tag = h.tagName
           const cls = h.className ? `.${h.className.split(' ')[0]}` : ''
@@ -227,7 +227,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
           ]
 
           const lineHint = targetLines.length > 0 ? ` (around line ${targetLines[0]})` : ''
-          const inspMsgs: Anthropic.MessageParam[] = [{ role: 'user', content: `${targetFile}${lineHint}:\n\`\`\`html\n${contextContent}\n\`\`\`\n\nSelected:\n${elementDetails}\n\nDo: ${browserPrompt}\n\nUse Edit tool. old_string must match the file exactly.` }]
+          const inspMsgs: Anthropic.MessageParam[] = [{ role: 'user', content: `${targetFile}${lineHint}:\n\`\`\`html\n${contextContent}\n\`\`\`\n\nSelected:\n${elementDetails}\n\nDo: ${browserPrompt}\n\nUse Edit tool. old_string must match the file exactly.${devtoolsContext ? '\n\nBrowser devtools:\n' + devtoolsContext : ''}` }]
           let inspTurns = 0, inspInput = 0, inspOutput = 0
 
           for (let t = 0; t < 2; t++) {
@@ -529,7 +529,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
           manifest,
           dict: dictRef.current,
           codec: codecRef.current,
-          onPrompt: async (hexIds: HexIdPayload[], browserPrompt: string) => {
+          onPrompt: async (hexIds: HexIdPayload[], browserPrompt: string, devtoolsContext?: string) => {
             const label = hexIds.map(h => {
               const tag = h.tagName
               const cls = h.className ? `.${h.className.split(' ')[0]}` : ''
@@ -575,7 +575,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
               ]
 
               const lineHint = targetLines.length > 0 ? ` (around line ${targetLines[0]})` : ''
-              const im: Anthropic.MessageParam[] = [{ role: 'user', content: `${targetFile}${lineHint}:\n\`\`\`html\n${contextContent}\n\`\`\`\n\nSelected:\n${elementDetails}\n\nDo: ${browserPrompt}\n\nUse Edit tool. old_string must match the file exactly.` }]
+              const im: Anthropic.MessageParam[] = [{ role: 'user', content: `${targetFile}${lineHint}:\n\`\`\`html\n${contextContent}\n\`\`\`\n\nSelected:\n${elementDetails}\n\nDo: ${browserPrompt}\n\nUse Edit tool. old_string must match the file exactly.${devtoolsContext ? '\n\nBrowser devtools:\n' + devtoolsContext : ''}` }]
               let turns = 0, inp = 0, out = 0
 
               for (let t = 0; t < 2; t++) {

@@ -18,13 +18,14 @@ export interface HexIdPayload {
 }
 
 export interface DevServerOptions {
+  // Note: onPrompt receives devtools summary as 3rd arg
   targetPort?: number       // if set, proxy this port. If not, serve files directly.
   hexPort: number
   serveDir?: string         // directory to serve static files from (when no targetPort)
   manifest: HexManifest
   dict: DictManager
   codec: HexCodec
-  onPrompt: (hexIds: HexIdPayload[], prompt: string) => void
+  onPrompt: (hexIds: HexIdPayload[], prompt: string, devtools?: string) => void
 }
 
 export class HexDevServer {
@@ -118,7 +119,7 @@ export class HexDevServer {
         try {
           const msg = JSON.parse(data.toString())
           if (msg.type === 'prompt') {
-            this.opts.onPrompt(msg.hexIds, msg.prompt)
+            this.opts.onPrompt(msg.hexIds, msg.prompt, msg.devtools)
           }
         } catch { /* invalid message */ }
       })

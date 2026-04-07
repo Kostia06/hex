@@ -8,6 +8,195 @@
   var wsReady = false
   var inspecting = true
 
+  // ===== DEVTOOLS CAPTURE =====
+  var devtools = {
+    console: [],    // { level, args, ts }
+    network: [],    // { method, url, status, duration, size, ts }
+    errors: [],     // { message, stack, ts }
+    performance: {} // { memory, timing, entries }
+  }
+  var MAX_ENTRIES = 50
+
+  // Console capture
+  var origConsole = {
+    log: console.log.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+    info: console.info.bind(console),
+    debug: console.debug.bind(console),
+  }
+
+  function captureConsole(level) {
+    return function() {
+      var args = Array.from(arguments).map(function(a) {
+        try { return typeof a === 'object' ? JSON.stringify(a, null, 0).slice(0, 200) : String(a) }
+        catch(e) { return String(a) }
+      })
+      devtools.console.push({ level: level, args: args.join(' '), ts: Date.now() })
+      if (devtools.console.length > MAX_ENTRIES) devtools.console.shift()
+      origConsole[level].apply(console, arguments)
+    }
+  }
+  console.log = captureConsole('log')
+  console.warn = captureConsole('warn')
+  console.error = captureConsole('error')
+  console.info = captureConsole('info')
+  console.debug = captureConsole('debug')
+
+  // Error capture
+  window.addEventListener('error', function(e) {
+    devtools.errors.push({
+      message: e.message,
+      stack: e.error ? e.error.stack?.slice(0, 300) : '',
+      file: e.filename,
+      line: e.lineno,
+      col: e.colno,
+      ts: Date.now()
+    })
+    if (devtools.errors.length > MAX_ENTRIES) devtools.errors.shift()
+  })
+
+  window.addEventListener('unhandledrejection', function(e) {
+    devtools.errors.push({
+      message: 'Unhandled Promise: ' + (e.reason?.message || String(e.reason)).slice(0, 200),
+      stack: e.reason?.stack?.slice(0, 300) || '',
+      ts: Date.now()
+    })
+    if (devtools.errors.length > MAX_ENTRIES) devtools.errors.shift()
+  })
+
+  // Network capture — wrap fetch
+  var origFetch = window.fetch
+  window.fetch = function(url, opts) {
+    var method = (opts && opts.method) ? opts.method : 'GET'
+    var reqUrl = typeof url === 'string' ? url : url.url
+    var start = Date.now()
+
+    return origFetch.apply(window, arguments).then(function(response) {
+      var entry = {
+        method: method,
+        url: reqUrl.slice(0, 200),
+        status: response.status,
+        statusText: response.statusText,
+        duration: Date.now() - start,
+        ts: start
+      }
+      devtools.network.push(entry)
+      if (devtools.network.length > MAX_ENTRIES) devtools.network.shift()
+      return response
+    }).catch(function(err) {
+      devtools.network.push({
+        method: method,
+        url: reqUrl.slice(0, 200),
+        status: 0,
+        statusText: 'FAILED: ' + err.message,
+        duration: Date.now() - start,
+        ts: start
+      })
+      if (devtools.network.length > MAX_ENTRIES) devtools.network.shift()
+      throw err
+    })
+  }
+
+  // Network capture — wrap XMLHttpRequest
+  var origXHROpen = XMLHttpRequest.prototype.open
+  var origXHRSend = XMLHttpRequest.prototype.send
+  XMLHttpRequest.prototype.open = function(method, url) {
+    this._hex = { method: method, url: String(url).slice(0, 200), start: 0 }
+    return origXHROpen.apply(this, arguments)
+  }
+  XMLHttpRequest.prototype.send = function() {
+    if (this._hex) {
+      this._hex.start = Date.now()
+      var self = this
+      this.addEventListener('loadend', function() {
+        devtools.network.push({
+          method: self._hex.method,
+          url: self._hex.url,
+          status: self.status,
+          statusText: self.statusText,
+          duration: Date.now() - self._hex.start,
+          ts: self._hex.start
+        })
+        if (devtools.network.length > MAX_ENTRIES) devtools.network.shift()
+      })
+    }
+    return origXHRSend.apply(this, arguments)
+  }
+
+  // Performance snapshot
+  function getPerformanceSnapshot() {
+    var perf = {}
+    // Memory (Chrome only)
+    if (performance.memory) {
+      perf.memory = {
+        usedMB: Math.round(performance.memory.usedJSHeapSize / 1048576),
+        totalMB: Math.round(performance.memory.totalJSHeapSize / 1048576),
+        limitMB: Math.round(performance.memory.jsHeapSizeLimit / 1048576),
+      }
+    }
+    // Page load timing
+    var nav = performance.getEntriesByType('navigation')[0]
+    if (nav) {
+      perf.pageLoad = {
+        domReady: Math.round(nav.domContentLoadedEventEnd),
+        loadComplete: Math.round(nav.loadEventEnd),
+        ttfb: Math.round(nav.responseStart - nav.requestStart),
+      }
+    }
+    // Slow resources (>500ms)
+    var resources = performance.getEntriesByType('resource')
+    perf.slowResources = resources
+      .filter(function(r) { return r.duration > 500 })
+      .map(function(r) { return { name: r.name.split('/').pop(), duration: Math.round(r.duration), type: r.initiatorType } })
+      .slice(0, 10)
+
+    return perf
+  }
+
+  // Get devtools summary for AI context
+  function getDevtoolsSummary() {
+    devtools.performance = getPerformanceSnapshot()
+    var parts = []
+
+    if (devtools.errors.length > 0) {
+      parts.push('ERRORS (' + devtools.errors.length + '):')
+      devtools.errors.slice(-5).forEach(function(e) {
+        parts.push('  ' + e.message + (e.file ? ' at ' + e.file + ':' + e.line : ''))
+      })
+    }
+
+    if (devtools.console.length > 0) {
+      var warns = devtools.console.filter(function(c) { return c.level === 'warn' || c.level === 'error' })
+      if (warns.length > 0) {
+        parts.push('CONSOLE WARNINGS (' + warns.length + '):')
+        warns.slice(-5).forEach(function(c) { parts.push('  [' + c.level + '] ' + c.args.slice(0, 150)) })
+      }
+      parts.push('Console: ' + devtools.console.length + ' entries (' +
+        devtools.console.filter(function(c) { return c.level === 'log' }).length + ' log, ' +
+        warns.length + ' warn/error)')
+    }
+
+    if (devtools.network.length > 0) {
+      var failed = devtools.network.filter(function(n) { return n.status >= 400 || n.status === 0 })
+      if (failed.length > 0) {
+        parts.push('FAILED REQUESTS:')
+        failed.slice(-5).forEach(function(n) { parts.push('  ' + n.method + ' ' + n.url + ' → ' + n.status) })
+      }
+      parts.push('Network: ' + devtools.network.length + ' requests, ' + failed.length + ' failed')
+    }
+
+    var perf = devtools.performance
+    if (perf.memory) parts.push('Memory: ' + perf.memory.usedMB + 'MB / ' + perf.memory.limitMB + 'MB')
+    if (perf.pageLoad) parts.push('Page load: ' + perf.pageLoad.loadComplete + 'ms, TTFB: ' + perf.pageLoad.ttfb + 'ms')
+    if (perf.slowResources && perf.slowResources.length > 0) {
+      parts.push('Slow resources:')
+      perf.slowResources.forEach(function(r) { parts.push('  ' + r.name + ' ' + r.duration + 'ms') })
+    }
+
+    return parts.length > 0 ? parts.join('\n') : 'No issues detected.'
+  }
+
   function getSelector(el) {
     if (el.id) return '#' + el.id
     var parts = []
@@ -76,6 +265,11 @@
     '#hex-titlebar-btns{display:flex;gap:6px}',
     '#hex-titlebar-btns button{background:none;border:none;color:#666;cursor:pointer;font:12px monospace;padding:0 4px}',
     '#hex-titlebar-btns button:hover{color:#eab308}',
+    '#hex-devtools{padding:6px 10px;border-top:1px solid rgba(234,179,8,0.1);font-size:11px;color:#777;max-height:80px;overflow-y:auto;flex-shrink:0}',
+    '#hex-devtools .dt-err{color:#e55}',
+    '#hex-devtools .dt-warn{color:#ea3}',
+    '#hex-devtools .dt-net{color:#6a6}',
+    '#hex-devtools .dt-perf{color:#68a}',
     '#hex-messages{flex:1;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:4px;scrollbar-width:thin;scrollbar-color:#333 transparent}',
     '#hex-messages::-webkit-scrollbar{width:4px}',
     '#hex-messages::-webkit-scrollbar-thumb{background:#333;border-radius:2px}',
@@ -184,10 +378,12 @@
       '<div id="hex-titlebar">' +
         '<span>\u2B21 hex</span>' +
         '<div id="hex-titlebar-btns">' +
+          '<button id="hex-btn-devtools" title="Devtools">D</button>' +
           '<button id="hex-btn-clear" title="Clear">C</button>' +
           '<button id="hex-btn-collapse" title="Collapse">\u2212</button>' +
         '</div>' +
       '</div>' +
+      '<div id="hex-devtools" style="display:none"></div>' +
       '<div id="hex-messages"></div>' +
       '<div id="hex-tags"></div>' +
       '<div id="hex-input-row">' +
@@ -226,6 +422,40 @@
       panel.classList.toggle('collapsed', panelCollapsed)
       this.textContent = panelCollapsed ? '+' : '\u2212'
     })
+
+    // Devtools panel toggle + live update
+    var dtVisible = false
+    var dtEl = document.getElementById('hex-devtools')
+    var dtTimer = null
+    document.getElementById('hex-btn-devtools').addEventListener('click', function(e) {
+      e.stopPropagation()
+      dtVisible = !dtVisible
+      dtEl.style.display = dtVisible ? 'block' : 'none'
+      if (dtVisible) {
+        updateDevtoolsPanel()
+        dtTimer = setInterval(updateDevtoolsPanel, 2000)
+      } else if (dtTimer) {
+        clearInterval(dtTimer)
+      }
+    })
+
+    function updateDevtoolsPanel() {
+      var perf = getPerformanceSnapshot()
+      var html = ''
+      if (devtools.errors.length > 0) {
+        html += '<div class="dt-err">\u2717 ' + devtools.errors.length + ' errors</div>'
+        devtools.errors.slice(-3).forEach(function(e) {
+          html += '<div class="dt-err" style="padding-left:8px">' + e.message.slice(0, 80) + '</div>'
+        })
+      }
+      var warns = devtools.console.filter(function(c) { return c.level === 'warn' || c.level === 'error' })
+      html += '<div class="dt-warn">' + devtools.console.length + ' console, ' + warns.length + ' warn</div>'
+      var failed = devtools.network.filter(function(n) { return n.status >= 400 || n.status === 0 })
+      html += '<div class="dt-net">' + devtools.network.length + ' requests, ' + failed.length + ' failed</div>'
+      if (perf.memory) html += '<div class="dt-perf">Mem: ' + perf.memory.usedMB + '/' + perf.memory.limitMB + 'MB</div>'
+      if (perf.pageLoad) html += '<div class="dt-perf">Load: ' + perf.pageLoad.loadComplete + 'ms</div>'
+      dtEl.innerHTML = html
+    }
 
     // Clear messages
     document.getElementById('hex-btn-clear').addEventListener('click', function(e) {
@@ -329,7 +559,12 @@
     addMessage('user', prompt)
 
     try {
-      ws.send(JSON.stringify({ type: 'prompt', hexIds: hexIds, prompt: prompt }))
+      ws.send(JSON.stringify({
+        type: 'prompt',
+        hexIds: hexIds,
+        prompt: prompt,
+        devtools: getDevtoolsSummary(),
+      }))
       inputEl.value = ''
       startStream()
     } catch(e) {
