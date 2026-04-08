@@ -64,19 +64,23 @@ const ToolCallLine = memo(function ToolCallLine({ tool }: { tool: ToolCall }) {
     )
   }
 
-  // Check if result contains a diff
+  // Check if result contains a diff (format: "Edited file\n{json}")
   let editDiff: { file: string; old: string; new: string } | null = null
   if (tool.result) {
     try {
-      const parsed = JSON.parse(tool.result)
-      if (parsed._hexEdit) editDiff = parsed
+      // Try parsing the JSON part (may be after a text line)
+      const jsonStart = tool.result.indexOf('{')
+      if (jsonStart >= 0) {
+        const parsed = JSON.parse(tool.result.slice(jsonStart))
+        if (parsed._hexEdit) editDiff = parsed
+      }
     } catch { /* not JSON */ }
   }
 
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color={tool.status === 'done' ? 'green' : 'red'}>{tool.status === 'done' ? '\u2713' : '\u2717'} </Text>
+        <Text color="green">{tool.status === 'done' ? '\u2713' : '\u2717'} </Text>
         <Text dimColor>{tool.name}</Text>
         {summary && <Text color={isBash ? 'white' : undefined} dimColor={!isBash}>  {summary}</Text>}
       </Box>
@@ -97,7 +101,7 @@ export const Message = memo(function Message({ message }: { message: HexMessage 
   switch (message.role) {
     case 'user':
       return (
-        <Box paddingLeft={1} marginTop={1}>
+        <Box paddingLeft={1} marginTop={1} marginBottom={0}>
           <Text color="yellow" bold>{'> '}</Text>
           <Text bold>{message.content}</Text>
         </Box>
@@ -112,7 +116,7 @@ export const Message = memo(function Message({ message }: { message: HexMessage 
       let inCode = false
 
       return (
-        <Box flexDirection="column" paddingLeft={3} marginTop={0}>
+        <Box flexDirection="column" paddingLeft={3} marginTop={0} marginBottom={1}>
           {isThinking && <Spinner color="#888" label="thinking..." />}
 
           {hasTools && (
@@ -171,7 +175,7 @@ export const Message = memo(function Message({ message }: { message: HexMessage 
     case 'error':
       return (
         <Box paddingLeft={1}>
-          <Text color="red">{'\u2717'} {message.content}</Text>
+          <Text color="green">{'\u2717'} {message.content}</Text>
         </Box>
       )
 

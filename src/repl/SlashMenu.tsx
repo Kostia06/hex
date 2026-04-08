@@ -21,6 +21,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: 'auto', description: 'Enter auto mode (no confirmations)' },
   { name: 'compact', description: 'Compress conversation history to save tokens' },
   { name: 'dict', description: 'Show HCP dictionary stats' },
+  { name: 'sessions', description: 'List past sessions' },
+  { name: 'resume', description: 'Resume a past session', hint: '<number>' },
   { name: 'help', description: 'Show all commands' },
   { name: 'exit', description: 'Exit Hex REPL' },
 ]

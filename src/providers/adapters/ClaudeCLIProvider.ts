@@ -158,20 +158,26 @@ export class ClaudeCLIProvider implements HexProvider {
       new Promise<number>(resolve => setTimeout(() => { proc.kill(); resolve(1) }, 5000)),
     ])
 
-    if (!hasStreamedTokens && stderrBuf.trim()) {
+    if (!hasStreamedTokens && (exitCode !== 0 || stderrBuf.trim())) {
       const err = stderrBuf.trim()
-      // Classify error type for better recovery
       if (err.includes('rate_limit') || err.includes('429')) {
         yield { type: 'error', error: 'Rate limited. Wait ~30s and try again.' }
       } else if (err.includes('prompt is too long') || err.includes('token')) {
-        // Session got too long — reset and tell user
         this.hasSession = false
         this.sessionTurns = 0
         yield { type: 'error', error: 'Conversation too long — session reset. Try again.' }
-      } else if (err.includes('authentication') || err.includes('401')) {
+      } else if (err.includes('authentication') || err.includes('401') || err.includes('Not logged in')) {
         yield { type: 'error', error: 'Auth failed. Run `claude login` to re-authenticate.' }
-      } else {
+      } else if (err.includes('session') || err.includes('resume') || err.includes('continue')) {
+        this.hasSession = false
+        this.sessionTurns = 0
+        yield { type: 'error', error: 'Session expired — reset. Try again.' }
+      } else if (err) {
         yield { type: 'error', error: err.slice(0, 300) }
+      } else if (exitCode !== 0) {
+        // No stderr but non-zero exit — might be a signal kill
+        this.hasSession = false
+        yield { type: 'error', error: `Process exited with code ${exitCode}` }
       }
     }
   }

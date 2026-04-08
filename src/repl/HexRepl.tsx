@@ -23,6 +23,7 @@ import { ProviderRegistry } from '../providers/registry.ts'
 import { resolveProvider } from '../providers/resolver.ts'
 import type { HexProvider } from '../providers/types.ts'
 // auth + SDK used by providers, not directly here
+import { createSessionId, appendMessage, listSessions, loadSession } from './sessionStore.ts'
 import { HexManifest } from '../inspector/Manifest.ts'
 // import { injectDirectory } from '../inspector/Injector.ts'
 import { HexDevServer } from '../inspector/DevServer.ts'
@@ -56,6 +57,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
   const ctrlCCountRef = useRef(0)
   const ctrlCTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inspectorRef = useRef<HexDevServer | null>(null)
+  const sessionIdRef = useRef(createSessionId())
   const submitRef = useRef<((prompt: string, fromUser?: boolean) => Promise<void>) | null>(null)
   const queueRef = useRef<string[]>([])
   const [queueSize, setQueueSize] = useState(0)
@@ -267,6 +269,17 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
     let turns = 0
     let finalText = ''
 
+    // Batch token updates at ~30fps to reduce re-renders
+    let tokenBuffer = ''
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+    const flushTokens = () => {
+      if (tokenBuffer) {
+        dispatch({ type: 'APPEND_TOKEN', messageId, token: tokenBuffer })
+        tokenBuffer = ''
+      }
+      flushTimer = null
+    }
+
     try {
       for await (const event of providerRef.current.stream({
         prompt,
@@ -276,7 +289,8 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
         onToken: (token) => {
           if (controller.signal.aborted) return
           finalText += token
-          dispatch({ type: 'APPEND_TOKEN', messageId, token })
+          tokenBuffer += token
+          if (!flushTimer) flushTimer = setTimeout(flushTokens, 33) // ~30fps
         },
         onToolCall: (name, input) => {
           if (controller.signal.aborted) return
@@ -328,6 +342,10 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
         }
       }
 
+      // Flush any remaining buffered tokens
+      if (flushTimer) clearTimeout(flushTimer)
+      flushTokens()
+
       dispatch({
         type: 'END_STREAMING',
         messageId,
@@ -336,6 +354,12 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
       })
 
       await appendHistory(prompt, finalText, totalCost, turns)
+
+      // Save to session
+      if (fromUser) {
+        appendMessage(cwd, sessionIdRef.current, { id: crypto.randomUUID(), role: 'user', content: prompt, streaming: false, toolCalls: [], timestamp: new Date() })
+      }
+      appendMessage(cwd, sessionIdRef.current, { id: messageId, role: 'assistant', content: finalText, streaming: false, toolCalls: [], timestamp: new Date() })
     } catch (err) {
       // Don't show error for aborts — handleSubmit already showed "Interrupted"
       if (!controller.signal.aborted) {
@@ -513,6 +537,49 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
         break
       }
 
+      case 'sessions': {
+        const sessions = listSessions(cwd)
+        if (sessions.length === 0) {
+          dispatch({ type: 'ADD_SYSTEM', content: 'No past sessions.' })
+        } else {
+          const list = sessions.map((s, i) =>
+            `${i + 1}. ${s.firstPrompt || '(empty)'} \u00B7 ${s.messageCount} msgs \u00B7 ${new Date(s.updatedAt).toLocaleDateString()}`
+          ).join('\n')
+          dispatch({ type: 'ADD_SYSTEM', content: list })
+        }
+        break
+      }
+
+      case 'resume': {
+        const sessions = listSessions(cwd)
+        const idx = parts[1] ? parseInt(parts[1]) - 1 : 0
+        const session = sessions[idx]
+        if (!session) {
+          dispatch({ type: 'ADD_SYSTEM', content: 'No session found. Use /sessions to list.' })
+          break
+        }
+        const messages = loadSession(cwd, session.id)
+        if (messages.length === 0) {
+          dispatch({ type: 'ADD_SYSTEM', content: 'Session is empty.' })
+          break
+        }
+        dispatch({ type: 'CLEAR_HISTORY' })
+        for (const msg of messages) {
+          if (msg.role === 'user') {
+            dispatch({ type: 'SET_INPUT', value: msg.content })
+            dispatch({ type: 'SUBMIT_INPUT' })
+          } else if (msg.role === 'assistant') {
+            const mid = crypto.randomUUID()
+            dispatch({ type: 'START_STREAMING', messageId: mid })
+            dispatch({ type: 'APPEND_TOKEN', messageId: mid, token: msg.content })
+            dispatch({ type: 'END_STREAMING', messageId: mid, costUsd: 0, turns: 0 })
+          }
+        }
+        sessionIdRef.current = session.id
+        dispatch({ type: 'ADD_SYSTEM', content: `Resumed session: ${session.firstPrompt.slice(0, 50)}` })
+        break
+      }
+
       default:
         dispatch({ type: 'ADD_ERROR', content: `Unknown command: /${name}. Type /help for commands.` })
     }
@@ -638,14 +705,13 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
       )}
 
       <InputBar
-        value={state.input}
         isStreaming={state.isStreaming || !!pendingConfirm}
-        onChange={(value) => {
-          if (pendingConfirm) return  // lock input during confirm
-          dispatch({ type: 'SET_INPUT', value })
-        }}
         onSubmit={handleSubmit}
         onSlashCommand={handleSlashCommand}
+        onSlashDetect={(isSlash, filter) => {
+          if (isSlash) dispatch({ type: 'SHOW_SLASH_MENU', filter })
+          else dispatch({ type: 'HIDE_SLASH_MENU' })
+        }}
         historyUp={historyUp}
         historyDown={historyDown}
       />

@@ -81,6 +81,9 @@ async function editFile(input: Record<string, unknown>, opts: ToolOptions): Prom
   const oldStr = (input['old_str'] ?? input['old_string'] ?? '') as string
   const newStr = (input['new_str'] ?? input['new_string'] ?? '') as string
 
+  // Validate
+  if (!oldStr) return 'ERROR: old_string cannot be empty'
+
   try {
     const content = await Bun.file(filePath).text()
     const occurrences = content.split(oldStr).length - 1
@@ -103,13 +106,9 @@ async function editFile(input: Record<string, unknown>, opts: ToolOptions): Prom
       await scanFile(filePath, fileEntry.token, opts.dict)
     }
 
-    // Return JSON with diff data for the REPL to render
-    return JSON.stringify({
-      _hexEdit: true,
-      file: filePath,
-      old: oldStr,
-      new: newStr,
-    })
+    const relPath = path.relative(opts.cwd, filePath) || filePath
+    // Human-readable + JSON for REPL diff rendering
+    return `Edited ${relPath}\n${JSON.stringify({ _hexEdit: true, file: filePath, old: oldStr, new: newStr })}`
   } catch {
     return `ERROR: Could not read ${filePath}`
   }
@@ -127,11 +126,14 @@ async function runBash(input: Record<string, unknown>, opts: ToolOptions): Promi
       stderr: 'pipe',
     })
 
-    const stdout = result.stdout.toString().slice(0, 10000)
-    const stderr = result.stderr.toString().slice(0, 5000)
+    // Truncate at line boundaries
+    const stdoutLines = result.stdout.toString().split('\n')
+    const stderrLines = result.stderr.toString().split('\n')
+    const stdout = stdoutLines.slice(0, 200).join('\n') + (stdoutLines.length > 200 ? `\n[...${stdoutLines.length - 200} more lines]` : '')
+    const stderr = stderrLines.slice(0, 50).join('\n')
     const prefix = result.exitCode !== 0 ? 'ERROR: ' : ''
 
-    return `${prefix}Exit: ${result.exitCode}\nStdout:\n${stdout}\nStderr:\n${stderr}`
+    return `${prefix}Exit: ${result.exitCode}\n${stdout}${stderr ? '\nStderr:\n' + stderr : ''}`
   } catch (err) {
     return `ERROR: Command failed: ${err instanceof Error ? err.message : String(err)}`
   }
@@ -219,10 +221,15 @@ export async function executeTool(
       case 'list_dir':
       case 'ls':
         return await withTimeout(() => listDir(input, opts), TOOL_TIMEOUT, name)
-      case 'glob':
-        return await withTimeout(() => runBash({ command: `find . -name "${input['pattern'] ?? '*'}" -not -path "*/node_modules/*" -not -path "*/.git/*" | head -20` }, opts), TOOL_TIMEOUT, name)
-      case 'grep':
-        return await withTimeout(() => runBash({ command: `grep -rn "${input['pattern'] ?? ''}" --include="*.{ts,tsx,js,jsx,html,css}" -l . 2>/dev/null | head -20` }, opts), TOOL_TIMEOUT, name)
+      case 'glob': {
+        // Sanitize pattern
+        const globPat = String(input['pattern'] ?? '*').replace(/[;&|`$(){}]/g, '')
+        return await withTimeout(() => runBash({ command: `find . -name '${globPat}' -not -path '*/node_modules/*' -not -path '*/.git/*' | head -20` }, opts), TOOL_TIMEOUT, name)
+      }
+      case 'grep': {
+        const grepPat = String(input['pattern'] ?? '').replace(/[;&|`$(){}]/g, '')
+        return await withTimeout(() => runBash({ command: `grep -rn '${grepPat}' --include='*.ts' --include='*.tsx' --include='*.js' --include='*.html' --include='*.css' -l . 2>/dev/null | head -20` }, opts), TOOL_TIMEOUT, name)
+      }
       case 'web_fetch':
         return await withTimeout(() => executeWebTool('web_fetch', input), 15_000, name)
       case 'web_search':
