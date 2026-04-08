@@ -6,7 +6,7 @@ import type {
   HexProvider, ProviderConfig, StreamOptions, StreamEvent,
   CompleteOptions, AvailabilityResult, ModelInfo,
 } from '../types.ts'
-import { classifyTask } from '../router.ts'
+import { classifyTask, classifyWithFallback } from '../router.ts'
 
 export class ClaudeCLIProvider implements HexProvider {
   readonly kind = 'claude-cli' as const
@@ -69,7 +69,7 @@ export class ClaudeCLIProvider implements HexProvider {
     if (this.hasSession) args.push('--continue')
 
     const isFirst = !this.hasSession
-    const route = isFirst ? classifyTask(opts.prompt) : { model: 'sonnet', maxTurns: 15 }
+    const route = isFirst ? await classifyWithFallback(opts.prompt) : { model: 'sonnet', maxTurns: 15 }
     args.push('--model', opts.model ?? route.model)
     args.push('--max-turns', String(opts.maxTurns ?? route.maxTurns))
 
@@ -175,7 +175,8 @@ export class ClaudeCLIProvider implements HexProvider {
     if (!this.client) this.client = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] })
 
     const isFirst = this.messages.length === 0
-    let model = opts.model ?? (isFirst ? classifyTask(opts.prompt).model : 'sonnet')
+    const sdkRoute = isFirst ? await classifyWithFallback(opts.prompt) : { model: 'sonnet' }
+    let model = opts.model ?? sdkRoute.model
     if (model === 'haiku') model = 'claude-haiku-4-5-20251001'
     else if (model === 'sonnet') model = 'claude-sonnet-4-6'
     else if (model === 'opus') model = 'claude-opus-4-6'
