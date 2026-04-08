@@ -1,7 +1,7 @@
 // hex — @hexhive/cli — MIT — https://github.com/hexhive/cli
 
 import Anthropic from '@anthropic-ai/sdk'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import type {
   HexProvider, ProviderConfig, StreamOptions, StreamEvent,
   CompleteOptions, AvailabilityResult, ModelInfo,
@@ -13,9 +13,10 @@ export class ClaudeCLIProvider implements HexProvider {
   private useSubprocess: boolean
   private client: Anthropic | null = null
   private messages: Anthropic.MessageParam[] = []
-  private hasSession = false
-  private sessionTurns = 0
-  private readonly MAX_SESSION_TURNS = 20 // reset session after this many turns
+  // Persistent subprocess
+  private proc: ChildProcess | null = null
+  private procReady = false
+  private buffer = ''
 
   constructor(readonly config: ProviderConfig) {
     this.useSubprocess = !process.env['ANTHROPIC_API_KEY']
@@ -47,54 +48,128 @@ export class ClaudeCLIProvider implements HexProvider {
 
   async *stream(opts: StreamOptions): AsyncIterable<StreamEvent> {
     if (this.useSubprocess) {
-      yield* this.streamViaSubprocess(opts)
+      yield* this.streamViaPersistentProcess(opts)
     } else {
       yield* this.streamViaSdk(opts)
     }
   }
 
-  // === SUBPROCESS MODE (subscription auth via `claude` CLI) ===
-  private async *streamViaSubprocess(opts: StreamOptions): AsyncIterable<StreamEvent> {
+  // === PERSISTENT SUBPROCESS MODE ===
+  private ensureProcess(opts: StreamOptions): ChildProcess {
+    if (this.proc && !this.proc.killed) return this.proc
+
+    const isInspectorEdit = /^(In |Edit )\S+\.\w+/.test(opts.prompt) || opts.prompt.includes('Selected elements:')
+    const route = classifyTask(opts.prompt)
+
     const args = [
-      '--print', '--output-format', 'stream-json', '--verbose',
-      '--include-partial-messages', '--dangerously-skip-permissions',
+      '--print',
+      '--output-format', 'stream-json',
+      '--input-format', 'stream-json',
+      '--verbose',
+      '--dangerously-skip-permissions',
+      '--model', opts.model ?? (isInspectorEdit ? 'haiku' : route.model),
+      '--max-turns', String(opts.maxTurns ?? (isInspectorEdit ? 3 : route.maxTurns)),
     ]
 
-    // Auto-compact: reset session when turns exceed limit
-    if (this.sessionTurns >= this.MAX_SESSION_TURNS) {
-      this.hasSession = false
-      this.sessionTurns = 0
-    }
+    if (isInspectorEdit) args.push('--effort', 'low')
 
-    const isFirst = !this.hasSession
-    // Fast path: inspector/UI edits — fresh process, haiku, low effort
-    const isInspectorEdit = /^(In |Edit )\S+\.\w+/.test(opts.prompt) || opts.prompt.includes('Selected elements:')
-
-    if (isInspectorEdit) {
-      args.push('--model', 'haiku', '--max-turns', '3', '--effort', 'low')
-    } else {
-      if (this.hasSession) args.push('--continue')
-      const route = isFirst ? classifyTask(opts.prompt) : { model: 'sonnet', maxTurns: 15 }
-      args.push('--model', opts.model ?? route.model)
-      args.push('--max-turns', String(opts.maxTurns ?? route.maxTurns))
-    }
-
-    if (opts.systemPrompt && isFirst) {
+    if (opts.systemPrompt) {
       args.push('--append-system-prompt', opts.systemPrompt)
     }
 
-    args.push('--', opts.prompt)
-    this.hasSession = true
+    this.proc = spawn('claude', args, {
+      cwd: process.cwd(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
 
-    const proc = spawn('claude', args, { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] })
-    const killTimer = setTimeout(() => proc.kill(), 120_000)
+    this.proc.on('exit', () => {
+      this.proc = null
+      this.procReady = false
+    })
 
-    let stderrBuf = ''
-    proc.stderr?.on('data', (chunk: Buffer) => { stderrBuf += chunk.toString() })
+    this.proc.stderr?.on('data', () => {}) // drain stderr
 
-    let buffer = ''
+    this.procReady = true
+    this.buffer = ''
+    return this.proc
+  }
+
+  private async *streamViaPersistentProcess(opts: StreamOptions): AsyncIterable<StreamEvent> {
+    const proc = this.ensureProcess(opts)
+
+    // Send message via stdin as JSON
+    const userMessage = JSON.stringify({
+      type: 'user',
+      content: opts.prompt,
+    }) + '\n'
+
+    proc.stdin?.write(userMessage)
+
     let turn = 0
     let hasStreamedTokens = false
+    let gotResult = false
+
+    // Read response lines from stdout
+    const linePromise = this.readLines(proc)
+
+    for await (const line of linePromise) {
+      if (!line.trim()) continue
+
+      let msg: Record<string, unknown>
+      try { msg = JSON.parse(line) } catch { continue }
+
+      if (msg['type'] === 'stream_event') {
+        const event = msg['event'] as Record<string, unknown> | undefined
+        if (event?.['type'] === 'content_block_delta') {
+          const delta = event['delta'] as Record<string, unknown> | undefined
+          if (delta?.['type'] === 'text_delta' && delta['text']) {
+            hasStreamedTokens = true
+            opts.onToken?.(delta['text'] as string)
+            yield { type: 'token', token: delta['text'] as string }
+          }
+        }
+      }
+
+      if (msg['type'] === 'assistant') {
+        const message = msg['message'] as Record<string, unknown> | undefined
+        const content = (message?.['content'] as Array<Record<string, unknown>>) ?? []
+
+        if (!hasStreamedTokens) {
+          for (const block of content) {
+            if (block['type'] === 'text') {
+              opts.onToken?.(block['text'] as string)
+              yield { type: 'token', token: block['text'] as string }
+            }
+          }
+        }
+
+        for (const block of content) {
+          if (block['type'] === 'tool_use') {
+            opts.onToolCall?.(block['name'] as string, (block['input'] ?? {}) as Record<string, unknown>)
+            yield { type: 'tool_call', toolName: block['name'] as string, toolInput: (block['input'] ?? {}) as Record<string, unknown> }
+          }
+        }
+
+        turn++
+        opts.onTurnComplete?.(turn)
+        yield { type: 'turn_complete', turn }
+        hasStreamedTokens = false
+      }
+
+      if (msg['type'] === 'result') {
+        gotResult = true
+        yield { type: 'done', costUsd: (msg['total_cost_usd'] as number) ?? 0 }
+        break // result = end of this response
+      }
+    }
+
+    if (!gotResult && !proc.killed) {
+      yield { type: 'done', costUsd: 0 }
+    }
+  }
+
+  private async *readLines(proc: ChildProcess): AsyncIterable<string> {
+    let buffer = ''
 
     for await (const chunk of proc.stdout!) {
       buffer += chunk.toString()
@@ -102,84 +177,18 @@ export class ClaudeCLIProvider implements HexProvider {
       buffer = lines.pop() ?? ''
 
       for (const line of lines) {
-        if (!line.trim()) continue
-        let msg: Record<string, unknown>
-        try { msg = JSON.parse(line) } catch { continue }
+        yield line
+      }
 
-        if (msg['type'] === 'stream_event') {
-          const event = msg['event'] as Record<string, unknown> | undefined
-          if (event?.['type'] === 'content_block_delta') {
-            const delta = event['delta'] as Record<string, unknown> | undefined
-            if (delta?.['type'] === 'text_delta' && delta['text']) {
-              hasStreamedTokens = true
-              opts.onToken?.(delta['text'] as string)
-              yield { type: 'token', token: delta['text'] as string }
-            }
-          }
-        }
-
-        if (msg['type'] === 'assistant') {
-          const message = msg['message'] as Record<string, unknown> | undefined
-          const content = (message?.['content'] as Array<Record<string, unknown>>) ?? []
-
-          if (!hasStreamedTokens) {
-            for (const block of content) {
-              if (block['type'] === 'text') {
-                opts.onToken?.(block['text'] as string)
-                yield { type: 'token', token: block['text'] as string }
-              }
-            }
-          }
-
-          for (const block of content) {
-            if (block['type'] === 'tool_use') {
-              opts.onToolCall?.(block['name'] as string, (block['input'] ?? {}) as Record<string, unknown>)
-              yield { type: 'tool_call', toolName: block['name'] as string, toolInput: (block['input'] ?? {}) as Record<string, unknown> }
-            }
-          }
-
-          turn++
-          this.sessionTurns++
-          opts.onTurnComplete?.(turn)
-          yield { type: 'turn_complete', turn }
-          hasStreamedTokens = false
-        }
-
-        if (msg['type'] === 'result') {
-          yield { type: 'done', costUsd: (msg['total_cost_usd'] as number) ?? 0 }
-        }
+      // Check if we got a result (end of response)
+      if (buffer.includes('"type":"result"') || lines.some(l => l.includes('"type":"result"'))) {
+        if (buffer.trim()) yield buffer
+        buffer = ''
+        return
       }
     }
 
-    clearTimeout(killTimer)
-
-    const exitCode = await Promise.race([
-      new Promise<number>(resolve => proc.on('close', (code) => resolve(code ?? 1))),
-      new Promise<number>(resolve => setTimeout(() => { proc.kill(); resolve(1) }, 5000)),
-    ])
-
-    if (!hasStreamedTokens && (exitCode !== 0 || stderrBuf.trim())) {
-      const err = stderrBuf.trim()
-      if (err.includes('rate_limit') || err.includes('429')) {
-        yield { type: 'error', error: 'Rate limited. Wait ~30s and try again.' }
-      } else if (err.includes('prompt is too long') || err.includes('token')) {
-        this.hasSession = false
-        this.sessionTurns = 0
-        yield { type: 'error', error: 'Conversation too long — session reset. Try again.' }
-      } else if (err.includes('authentication') || err.includes('401') || err.includes('Not logged in')) {
-        yield { type: 'error', error: 'Auth failed. Run `claude login` to re-authenticate.' }
-      } else if (err.includes('session') || err.includes('resume') || err.includes('continue')) {
-        this.hasSession = false
-        this.sessionTurns = 0
-        yield { type: 'error', error: 'Session expired — reset. Try again.' }
-      } else if (err) {
-        yield { type: 'error', error: err.slice(0, 300) }
-      } else if (exitCode !== 0) {
-        // No stderr but non-zero exit — might be a signal kill
-        this.hasSession = false
-        yield { type: 'error', error: `Process exited with code ${exitCode}` }
-      }
-    }
+    if (buffer.trim()) yield buffer
   }
 
   // === DIRECT SDK MODE (ANTHROPIC_API_KEY) ===
@@ -193,16 +202,12 @@ export class ClaudeCLIProvider implements HexProvider {
     else if (model === 'sonnet') model = 'claude-sonnet-4-6'
     else if (model === 'opus') model = 'claude-opus-4-6'
 
-    // Prompt caching: use cache_control on system prompt for cost savings
     const systemBlocks = isFirst && opts.systemPrompt
       ? [{ type: 'text' as const, text: opts.systemPrompt, cache_control: { type: 'ephemeral' as const } }]
       : undefined
 
-    // Auto-compact SDK messages when too long
     if (this.messages.length > 30) {
-      // Keep first 2 (system context) and last 10 (recent conversation)
-      const kept = [...this.messages.slice(0, 2), ...this.messages.slice(-10)]
-      this.messages = kept
+      this.messages = [...this.messages.slice(0, 2), ...this.messages.slice(-10)]
     }
 
     this.messages.push({ role: 'user', content: opts.prompt })
@@ -260,7 +265,12 @@ export class ClaudeCLIProvider implements HexProvider {
 
         this.messages.push({ role: 'user', content: toolResults })
       } catch (err: any) {
-        yield { type: 'error', error: err?.error?.error?.message ?? err?.message ?? String(err) }
+        const errMsg = err?.error?.error?.message ?? err?.message ?? String(err)
+        if (err?.status === 429 || errMsg.includes('rate_limit')) {
+          yield { type: 'error', error: 'Rate limited. Wait ~30s and try again.' }
+        } else {
+          yield { type: 'error', error: errMsg }
+        }
         return
       }
     }
