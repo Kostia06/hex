@@ -37,7 +37,7 @@ export const MessageList = memo(function MessageList({ messages }: { messages: H
     return result
   }, [messages, availableLines, cols])
 
-  const hasConversation = messages.some(m => m.role === 'user' || m.role === 'assistant')
+  const hasConversation = messages.length > 1
 
   if (!hasConversation) {
     return (
