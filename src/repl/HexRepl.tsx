@@ -230,9 +230,14 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
       historyRef.current.unshift(prompt)
       historyIndexRef.current = -1
       try {
-        fs.mkdirSync(path.dirname(historyFileRef.current), { recursive: true })
-        fs.appendFileSync(historyFileRef.current, prompt + '\n')
-      } catch { /* non-fatal */ }
+        const histPath = historyFileRef.current
+        fs.mkdirSync(path.dirname(histPath), { recursive: true })
+        const existing = fs.existsSync(histPath) ? fs.readFileSync(histPath, 'utf8') : ''
+        fs.writeFileSync(histPath, existing + prompt + '\n')
+      } catch (e) {
+        // Debug: uncomment to see why history fails
+        // console.error('History save error:', e)
+      }
     }
 
     // Add user message — skip if inspector already dispatched it
