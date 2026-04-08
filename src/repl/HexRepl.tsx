@@ -595,8 +595,8 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
     const openInspectMatch = prompt.match(/^(?:open|inspect|serve|preview)\s+(\S+\.html?)\s*(and\s+inspect)?\s*/i)
     if (openInspectMatch) {
       const file = openInspectMatch[1]!
-      dispatch({ type: 'SET_INPUT', value: prompt })
-      dispatch({ type: 'SUBMIT_INPUT' })
+      // Don't use SUBMIT_INPUT — it sets isStreaming:true with no END_STREAMING
+      dispatch({ type: 'ADD_SYSTEM', content: `> ${prompt}` })
       autoStartInspector()
       Bun.spawnSync(['open', `http://localhost:4000`])
       dispatch({ type: 'ADD_SYSTEM', content: `Opened ${file} \u00B7 http://localhost:4000` })
