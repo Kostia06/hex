@@ -71,15 +71,12 @@ export class ClaudeCLIProvider implements HexProvider {
     const isInspectorEdit = /^(In |Edit )\S+\.\w+/.test(opts.prompt) || opts.prompt.includes('Selected elements:')
 
     if (isInspectorEdit) {
-      // Bare mode: skip hooks, LSP, plugins, CLAUDE.md — fastest possible
-      args.push('--bare', '--model', 'haiku', '--max-turns', '3', '--effort', 'low')
+      args.push('--model', 'haiku', '--max-turns', '3', '--effort', 'low')
     } else {
       if (this.hasSession) args.push('--continue')
       const route = isFirst ? await classifyWithFallback(opts.prompt) : { model: 'sonnet', maxTurns: 15 }
       args.push('--model', opts.model ?? route.model)
       args.push('--max-turns', String(opts.maxTurns ?? route.maxTurns))
-      // Use bare mode for simple tasks (haiku) — faster startup
-      if (route.model === 'haiku' && !this.hasSession) args.push('--bare')
     }
 
     if (opts.systemPrompt && isFirst) {
