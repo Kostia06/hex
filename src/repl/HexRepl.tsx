@@ -592,7 +592,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
     }
 
     // Intercept "open X and inspect" — handle directly, no AI needed
-    const openInspectMatch = prompt.match(/^open\s+(\S+\.html?)\s*(and\s+inspect|inspect)?\s*/i)
+    const openInspectMatch = prompt.match(/^(?:open|inspect|serve|preview)\s+(\S+\.html?)\s*(and\s+inspect)?\s*/i)
     if (openInspectMatch) {
       const file = openInspectMatch[1]!
       dispatch({ type: 'SET_INPUT', value: prompt })

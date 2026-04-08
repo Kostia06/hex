@@ -1,1 +1,2 @@
 test-entry
+inspect index.html
