@@ -351,13 +351,9 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
 
   const handleSlashCommand = useCallback(async (cmd: string) => {
     const fullCmd = '/' + cmd
-    // Save to history
+    // Only keep in memory for arrow-key recall, don't persist to file
     historyRef.current.unshift(fullCmd)
     historyIndexRef.current = -1
-    try {
-      fs.mkdirSync(path.dirname(historyFileRef.current), { recursive: true })
-      fs.appendFileSync(historyFileRef.current, fullCmd + '\n')
-    } catch { /* non-fatal */ }
 
     const parts = cmd.trim().split(/\s+/)
     const name = parts[0]
