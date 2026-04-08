@@ -49,3 +49,16 @@ Selected elements: <body> text: "Hex Inspector Demo
   <div data-hex-file="index.html" data-hex-line="225" data-hex-id="hex-div-001" class="section"
 Devtools: Page load: 88ms, TTFB: 2ms
 open index.html and inspect it
+Edit index.html: make it gradient red+blue+green
+Selected elements: <body> text: "Hex Inspector Demo
+    Use the inspector to select elements " html: <body class="hex-selected">
+  <header class="">
+    <h1 class="">Hex Inspector Demo</h1>
+    <p class="">Use the inspector to select elements and view their properties.</p>
+  </header>
+
+  <div class="section">
+    <div class="section-title">Buttons</div>
+    <div class="card">
+      <button class="b
+Devtools: Page load: 112ms, TTFB: 3ms

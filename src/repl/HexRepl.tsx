@@ -56,7 +56,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
   const ctrlCCountRef = useRef(0)
   const ctrlCTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inspectorRef = useRef<HexDevServer | null>(null)
-  const submitRef = useRef<((prompt: string) => Promise<void>) | null>(null)
+  const submitRef = useRef<((prompt: string, fromUser?: boolean) => Promise<void>) | null>(null)
   const queueRef = useRef<string[]>([])
   const [queueSize, setQueueSize] = useState(0)
 
@@ -188,19 +188,17 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
         const elementDetails = hexIds.map(h => {
           const parts = [`<${h.tagName}>`]
           if (h.className) parts.push(`class="${h.className}"`)
-          if ((h as any).text) parts.push(`text: "${(h as any).text.slice(0, 60)}"`)
-          if ((h as any).outerHTML) parts.push(`html: ${(h as any).outerHTML}`)
+          if ((h as any).text) parts.push(`"${(h as any).text.slice(0, 40)}"`)
           return parts.join(' ')
-        }).join('\n')
-        dispatch({ type: 'SET_INPUT', value: `${browserPrompt} \u2192 [${label}]` })
+        }).join(', ')
+        dispatch({ type: 'SET_INPUT', value: `${browserPrompt} [${label}]` })
         dispatch({ type: 'SUBMIT_INPUT' })
 
-        // Route through submitPrompt which uses subprocess (handles OAuth)
         const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
-        const fullPrompt = `Edit ${targetFile}: ${browserPrompt}\nSelected elements: ${elementDetails}${devtoolsContext ? '\nDevtools: ' + devtoolsContext : ''}`
+        const fullPrompt = `Edit ${targetFile}: ${browserPrompt}. Elements: ${elementDetails}${devtoolsContext ? '. Devtools: ' + devtoolsContext : ''}`
 
         if (submitRef.current) {
-          await submitRef.current(fullPrompt)
+          await submitRef.current(fullPrompt, false)
           server.broadcast({ type: 'agent-token', text: '\u2713 Done' })
           setTimeout(() => server.broadcast({ type: 'reload' }), 800)
         }
@@ -473,7 +471,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
             const fullPrompt = `Edit ${targetFile}: ${browserPrompt}\nSelected elements: ${elementDetails}${devtoolsContext ? '\nDevtools: ' + devtoolsContext : ''}`
 
             if (submitRef.current) {
-              await submitRef.current(fullPrompt)
+              await submitRef.current(fullPrompt, false)
               inspectServer.broadcast({ type: 'agent-token', text: '\u2713 Done' })
               setTimeout(() => inspectServer.broadcast({ type: 'reload' }), 800)
             }
