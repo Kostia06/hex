@@ -37,3 +37,14 @@ make bg in index.html towards red instead of pink
 open index.html and inspect it
 open index.html and inspect it
 open index.html and inspect it
+open index.html and inspect it
+Edit index.html: make it red+blue+green gradient
+Selected elements: <body> text: "Hex Inspector Demo
+    Use the inspector to select elements " html: <body class="hex-selected">
+  <header data-hex-file="index.html" data-hex-line="220" data-hex-id="hex-header-001" class="">
+    <h1 data-hex-file="index.html" data-hex-line="221" data-hex-id="hex-h1-001" class="">Hex Inspector Demo</h1>
+    <p data-hex-file="index.html" data-hex-line="222" data-hex-id="hex-p-001" class="">Use the inspector to select elements and view their properties.</p>
+  </header>
+
+  <div data-hex-file="index.html" data-hex-line="225" data-hex-id="hex-div-001" class="section"
+Devtools: Page load: 88ms, TTFB: 2ms

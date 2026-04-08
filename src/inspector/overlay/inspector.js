@@ -550,7 +550,7 @@
         tagName: el.tagName.toLowerCase(),
         className: (el.className || '').toString().replace(/hex-\S+/g, '').trim(),
         text: (el.textContent || '').slice(0, 80).trim(),
-        outerHTML: el.outerHTML.slice(0, 500),
+        outerHTML: el.outerHTML.replace(/\s*data-hex-\w+="[^"]*"/g, '').slice(0, 300),
         file: el.getAttribute('data-hex-file') || '',
         line: parseInt(el.getAttribute('data-hex-line') || '0'),
       })
