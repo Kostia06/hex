@@ -181,7 +181,7 @@ export class ClaudeCLIProvider implements HexProvider {
     if (!this.client) this.client = new Anthropic({ apiKey: process.env['ANTHROPIC_API_KEY'] })
 
     const isFirst = this.messages.length === 0
-    const sdkRoute = isFirst ? await classifyWithFallback(opts.prompt) : { model: 'sonnet' }
+    const sdkRoute = isFirst ? classifyTask(opts.prompt) : { model: 'sonnet' }
     let model = opts.model ?? sdkRoute.model
     if (model === 'haiku') model = 'claude-haiku-4-5-20251001'
     else if (model === 'sonnet') model = 'claude-sonnet-4-6'
