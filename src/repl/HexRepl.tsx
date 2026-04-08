@@ -195,7 +195,7 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
         dispatch({ type: 'SUBMIT_INPUT' })
 
         const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
-        const fullPrompt = `Edit ${targetFile}: ${browserPrompt}. Elements: ${elementDetails}${devtoolsContext ? '. Devtools: ' + devtoolsContext : ''}`
+        const fullPrompt = `In ${targetFile}, for the selected element (${elementDetails}): ${browserPrompt}. Only modify the relevant CSS/style/attribute — do NOT delete or replace the element's content or children.`
 
         if (submitRef.current) {
           await submitRef.current(fullPrompt, false)
@@ -233,9 +233,11 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
       } catch { /* non-fatal */ }
     }
 
-    // Add user message to conversation
-    dispatch({ type: 'SET_INPUT', value: prompt })
-    dispatch({ type: 'SUBMIT_INPUT' })
+    // Add user message — skip if inspector already dispatched it
+    if (fromUser) {
+      dispatch({ type: 'SET_INPUT', value: prompt })
+      dispatch({ type: 'SUBMIT_INPUT' })
+    }
 
     const messageId = crypto.randomUUID()
     dispatch({ type: 'START_STREAMING', messageId })
