@@ -14,6 +14,8 @@ export class ClaudeCLIProvider implements HexProvider {
   private client: Anthropic | null = null
   private messages: Anthropic.MessageParam[] = []
   private hasSession = false
+  private sessionTurns = 0
+  private readonly MAX_SESSION_TURNS = 20 // reset session after this many turns
 
   constructor(readonly config: ProviderConfig) {
     this.useSubprocess = !process.env['ANTHROPIC_API_KEY']
@@ -57,6 +59,12 @@ export class ClaudeCLIProvider implements HexProvider {
       '--print', '--output-format', 'stream-json', '--verbose',
       '--include-partial-messages', '--dangerously-skip-permissions',
     ]
+
+    // Auto-compact: reset session when turns exceed limit
+    if (this.sessionTurns >= this.MAX_SESSION_TURNS) {
+      this.hasSession = false
+      this.sessionTurns = 0
+    }
 
     if (this.hasSession) args.push('--continue')
 
@@ -125,6 +133,7 @@ export class ClaudeCLIProvider implements HexProvider {
           }
 
           turn++
+          this.sessionTurns++
           opts.onTurnComplete?.(turn)
           yield { type: 'turn_complete', turn }
           hasStreamedTokens = false
@@ -144,7 +153,20 @@ export class ClaudeCLIProvider implements HexProvider {
     ])
 
     if (!hasStreamedTokens && stderrBuf.trim()) {
-      yield { type: 'error', error: stderrBuf.trim().slice(0, 500) }
+      const err = stderrBuf.trim()
+      // Classify error type for better recovery
+      if (err.includes('rate_limit') || err.includes('429')) {
+        yield { type: 'error', error: 'Rate limited. Wait ~30s and try again.' }
+      } else if (err.includes('prompt is too long') || err.includes('token')) {
+        // Session got too long — reset and tell user
+        this.hasSession = false
+        this.sessionTurns = 0
+        yield { type: 'error', error: 'Conversation too long — session reset. Try again.' }
+      } else if (err.includes('authentication') || err.includes('401')) {
+        yield { type: 'error', error: 'Auth failed. Run `claude login` to re-authenticate.' }
+      } else {
+        yield { type: 'error', error: err.slice(0, 300) }
+      }
     }
   }
 
@@ -158,7 +180,18 @@ export class ClaudeCLIProvider implements HexProvider {
     else if (model === 'sonnet') model = 'claude-sonnet-4-6'
     else if (model === 'opus') model = 'claude-opus-4-6'
 
-    const systemPrompt = isFirst && opts.systemPrompt ? opts.systemPrompt : undefined
+    // Prompt caching: use cache_control on system prompt for cost savings
+    const systemBlocks = isFirst && opts.systemPrompt
+      ? [{ type: 'text' as const, text: opts.systemPrompt, cache_control: { type: 'ephemeral' as const } }]
+      : undefined
+
+    // Auto-compact SDK messages when too long
+    if (this.messages.length > 30) {
+      // Keep first 2 (system context) and last 10 (recent conversation)
+      const kept = [...this.messages.slice(0, 2), ...this.messages.slice(-10)]
+      this.messages = kept
+    }
+
     this.messages.push({ role: 'user', content: opts.prompt })
 
     const tools: Anthropic.Tool[] = [
@@ -173,7 +206,7 @@ export class ClaudeCLIProvider implements HexProvider {
 
     while (turn < maxTurns) {
       try {
-        const stream = this.client.messages.stream({ model, max_tokens: 8192, system: systemPrompt, messages: this.messages, tools })
+        const stream = this.client.messages.stream({ model, max_tokens: 8192, system: systemBlocks as any, messages: this.messages, tools })
 
         for await (const event of stream) {
           if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {

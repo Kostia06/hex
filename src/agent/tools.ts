@@ -161,7 +161,7 @@ async function listDir(input: Record<string, unknown>, opts: ToolOptions): Promi
         const childPrefix = isLast ? '    ' : '\u2502   '
 
         const relativePath = path.relative(opts.cwd, path.join(dir, entry.name))
-        const token = opts.dict.files.getByPath(relativePath)?.token ?? ''
+        const token = opts.dict?.files.getByPath(relativePath)?.token ?? ''
         const suffix = token ? ` ${token}` : ''
 
         if (entry.isDirectory()) {
@@ -179,10 +179,21 @@ async function listDir(input: Record<string, unknown>, opts: ToolOptions): Promi
   }
 
   const rootRelative = path.relative(opts.cwd, dirPath) || '.'
-  const rootToken = opts.dict.files.getByPath(rootRelative)?.token ?? ''
+  const rootToken = opts.dict?.files.getByPath(rootRelative)?.token ?? ''
   const header = `${rootRelative}/${rootToken ? ` ${rootToken}` : ''}`
 
   return [header, ...buildTree(dirPath, '', 0)].join('\n')
+}
+
+const TOOL_TIMEOUT = 30_000
+
+async function withTimeout<T>(fn: () => Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Tool "${label}" timed out after ${ms / 1000}s`)), ms),
+    ),
+  ])
 }
 
 export async function executeTool(
@@ -190,14 +201,36 @@ export async function executeTool(
   input: Record<string, unknown>,
   opts: ToolOptions,
 ): Promise<string> {
-  switch (name) {
-    case 'read_file': return readFile(input, opts)
-    case 'write_file': return writeFile(input, opts)
-    case 'edit_file': return editFile(input, opts)
-    case 'bash': return runBash(input, opts)
-    case 'list_dir': return listDir(input, opts)
-    case 'web_fetch': return executeWebTool('web_fetch', input)
-    case 'web_search': return executeWebTool('web_search', input)
-    default: return `ERROR: Unknown tool: ${name}`
+  try {
+    // Normalize tool names (Claude CLI uses capitalized, our tools use lowercase)
+    const n = name.toLowerCase()
+    switch (n) {
+      case 'read_file':
+      case 'read':
+        return await withTimeout(() => readFile(input, opts), TOOL_TIMEOUT, name)
+      case 'write_file':
+      case 'write':
+        return await withTimeout(() => writeFile(input, opts), TOOL_TIMEOUT, name)
+      case 'edit_file':
+      case 'edit':
+        return await withTimeout(() => editFile(input, opts), TOOL_TIMEOUT, name)
+      case 'bash':
+        return await withTimeout(() => runBash(input, opts), 60_000, name) // bash gets 60s
+      case 'list_dir':
+      case 'ls':
+        return await withTimeout(() => listDir(input, opts), TOOL_TIMEOUT, name)
+      case 'glob':
+        return await withTimeout(() => runBash({ command: `find . -name "${input['pattern'] ?? '*'}" -not -path "*/node_modules/*" -not -path "*/.git/*" | head -20` }, opts), TOOL_TIMEOUT, name)
+      case 'grep':
+        return await withTimeout(() => runBash({ command: `grep -rn "${input['pattern'] ?? ''}" --include="*.{ts,tsx,js,jsx,html,css}" -l . 2>/dev/null | head -20` }, opts), TOOL_TIMEOUT, name)
+      case 'web_fetch':
+        return await withTimeout(() => executeWebTool('web_fetch', input), 15_000, name)
+      case 'web_search':
+        return await withTimeout(() => executeWebTool('web_search', input), 15_000, name)
+      default:
+        return `Unknown tool: ${name}`
+    }
+  } catch (err) {
+    return `ERROR: ${err instanceof Error ? err.message : String(err)}`
   }
 }
