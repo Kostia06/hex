@@ -195,7 +195,9 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
         dispatch({ type: 'SUBMIT_INPUT' })
 
         const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
-        const fullPrompt = `In ${targetFile}, for the selected element (${elementDetails}): ${browserPrompt}. Only modify the relevant CSS/style/attribute — do NOT delete or replace the element's content or children.`
+        const isStructural = /\b(remove|delete|rearrange|reorder|move|swap|add|insert|replace|restructure)\b/i.test(browserPrompt)
+        const constraint = isStructural ? '' : ' Only modify CSS/style/attributes — preserve all content and children.'
+        const fullPrompt = `In ${targetFile}, for the element (${elementDetails}): ${browserPrompt}.${constraint}`
 
         if (submitRef.current) {
           await submitRef.current(fullPrompt, false)
