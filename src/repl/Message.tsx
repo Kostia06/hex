@@ -6,18 +6,24 @@ import { Spinner } from './Spinner.tsx'
 import { DiffView } from './DiffView.tsx'
 import type { HexMessage, ToolCall } from './replState.ts'
 
+// Strip cwd prefix to show relative paths
+function rel(p: string): string {
+  const cwd = process.cwd()
+  return p.startsWith(cwd) ? p.slice(cwd.length + 1) : p
+}
+
 // Format tool input cleanly
 function formatInput(tool: ToolCall): string {
   const i = tool.input
-  if (typeof i['path'] === 'string') return i['path'] as string
-  if (typeof i['file_path'] === 'string') return i['file_path'] as string
+  if (typeof i['path'] === 'string') return rel(i['path'] as string)
+  if (typeof i['file_path'] === 'string') return rel(i['file_path'] as string)
   if (typeof i['command'] === 'string') return (i['command'] as string).slice(0, 80)
   if (typeof i['pattern'] === 'string') return i['pattern'] as string
   if (typeof i['query'] === 'string') return i['query'] as string
   if (typeof i['url'] === 'string') return i['url'] as string
   const entries = Object.entries(i).filter(([, v]) => v !== undefined && v !== null && v !== '')
   if (entries.length === 0) return ''
-  return entries.map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`.slice(0, 40)).join(' ')
+  return entries.map(([k, v]) => `${k}=${typeof v === 'string' ? rel(v) : JSON.stringify(v)}`.slice(0, 40)).join(' ')
 }
 
 // Inline markdown: **bold** and `code`

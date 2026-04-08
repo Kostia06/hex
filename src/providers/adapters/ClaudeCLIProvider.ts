@@ -66,17 +66,19 @@ export class ClaudeCLIProvider implements HexProvider {
       this.sessionTurns = 0
     }
 
-    if (this.hasSession) args.push('--continue')
-
     const isFirst = !this.hasSession
-    // Fast path: inspector/UI edits skip classification, always haiku
+    // Fast path: inspector/UI edits — fresh process, haiku, low effort
     const isInspectorEdit = /^(In |Edit )\S+\.\w+/.test(opts.prompt) || opts.prompt.includes('Selected elements:')
-    const route = isInspectorEdit
-      ? { model: 'haiku', maxTurns: 3 }
-      : isFirst ? await classifyWithFallback(opts.prompt) : { model: 'sonnet', maxTurns: 15 }
-    args.push('--model', opts.model ?? route.model)
-    args.push('--max-turns', String(opts.maxTurns ?? route.maxTurns))
-    if (isInspectorEdit) args.push('--effort', 'low')
+
+    if (isInspectorEdit) {
+      // Don't continue session — fresh haiku is faster
+      args.push('--model', 'haiku', '--max-turns', '3', '--effort', 'low')
+    } else {
+      if (this.hasSession) args.push('--continue')
+      const route = isFirst ? await classifyWithFallback(opts.prompt) : { model: 'sonnet', maxTurns: 15 }
+      args.push('--model', opts.model ?? route.model)
+      args.push('--max-turns', String(opts.maxTurns ?? route.maxTurns))
+    }
 
     if (opts.systemPrompt && isFirst) {
       args.push('--append-system-prompt', opts.systemPrompt)
