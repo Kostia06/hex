@@ -3,3 +3,4 @@ inspect index.html
 actually remove the green
 actually remove the green
 actually remove the green
+replace the red with green

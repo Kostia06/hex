@@ -197,7 +197,11 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
         const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
         const isStructural = /\b(remove|delete|rearrange|reorder|move|swap|add|insert|replace|restructure)\b/i.test(browserPrompt)
         const constraint = isStructural ? '' : ' Only modify CSS/style/attributes — preserve all content and children.'
-        const fullPrompt = `In ${targetFile}, for the element (${elementDetails}): ${browserPrompt}.${constraint}`
+
+        // Read file upfront so AI doesn't need to — saves one tool call
+        let fileContent = ''
+        try { fileContent = fs.readFileSync(path.join(cwd, targetFile), 'utf8') } catch { /* */ }
+        const fullPrompt = `File ${targetFile} content:\n\`\`\`\n${fileContent}\n\`\`\`\n\nElement: ${elementDetails}\nTask: ${browserPrompt}.${constraint}\n\nYou already have the file content above. Do NOT read it. Just use Edit tool directly.`
 
         if (submitRef.current) {
           await submitRef.current(fullPrompt, false)
@@ -473,7 +477,12 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
               return parts.join(' ')
             }).join('\n')
             const targetFile = hexIds.find(h => (h as any).file)?.file as string || 'index.html'
-            const fullPrompt = `Edit ${targetFile}: ${browserPrompt}\nSelected elements: ${elementDetails}${devtoolsContext ? '\nDevtools: ' + devtoolsContext : ''}`
+            const isStructural = /\b(remove|delete|rearrange|reorder|move|swap|add|insert|replace|restructure)\b/i.test(browserPrompt)
+            const constraint = isStructural ? '' : ' Only modify CSS/style/attributes — preserve content.'
+
+            let fileContent = ''
+            try { fileContent = fs.readFileSync(path.join(cwd, targetFile), 'utf8') } catch { /* */ }
+            const fullPrompt = `File ${targetFile}:\n\`\`\`\n${fileContent}\n\`\`\`\n\nElement: ${elementDetails}\nTask: ${browserPrompt}.${constraint}\n\nDo NOT read the file. Use Edit tool directly.${devtoolsContext ? '\nDevtools: ' + devtoolsContext : ''}`
 
             if (submitRef.current) {
               await submitRef.current(fullPrompt, false)
