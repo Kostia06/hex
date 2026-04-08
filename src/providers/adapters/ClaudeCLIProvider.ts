@@ -6,7 +6,7 @@ import type {
   HexProvider, ProviderConfig, StreamOptions, StreamEvent,
   CompleteOptions, AvailabilityResult, ModelInfo,
 } from '../types.ts'
-import { classifyTask, classifyWithFallback } from '../router.ts'
+import { classifyTask } from '../router.ts'
 
 export class ClaudeCLIProvider implements HexProvider {
   readonly kind = 'claude-cli' as const
@@ -74,7 +74,7 @@ export class ClaudeCLIProvider implements HexProvider {
       args.push('--model', 'haiku', '--max-turns', '3', '--effort', 'low')
     } else {
       if (this.hasSession) args.push('--continue')
-      const route = isFirst ? await classifyWithFallback(opts.prompt) : { model: 'sonnet', maxTurns: 15 }
+      const route = isFirst ? classifyTask(opts.prompt) : { model: 'sonnet', maxTurns: 15 }
       args.push('--model', opts.model ?? route.model)
       args.push('--max-turns', String(opts.maxTurns ?? route.maxTurns))
     }
