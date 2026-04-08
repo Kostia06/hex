@@ -169,13 +169,7 @@ export class HexDevServer {
     const cssTag = '<link rel="stylesheet" href="/_hex/inspector.css">'
     const jsTag = `<script src="/_hex/inspector.js" data-hex-ws="${this.opts.hexPort}"></script>`
 
-    // Inject data-hex-file and data-hex-line on every HTML element at serve time
     const fileName = reqPath === '/' || !reqPath ? 'index.html' : reqPath.replace(/^\//, '')
-    let lineNum = 0
-    html = html.replace(/\n/g, () => { lineNum++; return '\n' })
-
-    // Reset and inject line numbers into opening tags
-    lineNum = 0
     const lines = html.split('\n')
     const tagPattern = /(<(?:div|section|nav|header|footer|main|aside|article|p|span|h[1-6]|ul|ol|li|button|a|input|form|table|tr|td|th|img|label|select|textarea))([\s>])/gi
     const injected = lines.map((line, i) => {
@@ -191,7 +185,12 @@ export class HexDevServer {
   }
 
   stop(): void {
-    this.server?.close()
+    for (const client of this.clients) {
+      try { client.close() } catch { /* */ }
+    }
+    this.clients.clear()
     this.wss?.close()
+    this.server?.close()
+    this.proxy?.close()
   }
 }

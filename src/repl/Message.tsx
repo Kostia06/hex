@@ -80,7 +80,7 @@ const ToolCallLine = memo(function ToolCallLine({ tool }: { tool: ToolCall }) {
   return (
     <Box flexDirection="column">
       <Box>
-        <Text color="green">{tool.status === 'done' ? '\u2713' : '\u2717'} </Text>
+        <Text color={tool.status === 'done' ? 'green' : 'red'}>{tool.status === 'done' ? '\u2713' : '\u2717'} </Text>
         <Text dimColor>{tool.name}</Text>
         {summary && <Text color={isBash ? 'white' : undefined} dimColor={!isBash}>  {summary}</Text>}
       </Box>
@@ -175,7 +175,7 @@ export const Message = memo(function Message({ message }: { message: HexMessage 
     case 'error':
       return (
         <Box paddingLeft={1}>
-          <Text color="green">{'\u2717'} {message.content}</Text>
+          <Text color="red">{'\u2717'} {message.content}</Text>
         </Box>
       )
 

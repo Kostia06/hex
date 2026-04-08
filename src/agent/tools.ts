@@ -29,7 +29,9 @@ function resolveDir(input: string, opts: ToolOptions): string {
 }
 
 async function readFile(input: Record<string, unknown>, opts: ToolOptions): Promise<string> {
-  const filePath = resolvePath(input['path'] as string, opts)
+  const rawPath = (input['path'] ?? input['file_path'] ?? '') as string
+  if (!rawPath) return 'ERROR: path is required'
+  const filePath = resolvePath(rawPath, opts)
 
   try {
     const content = await Bun.file(filePath).text()
@@ -50,8 +52,11 @@ async function readFile(input: Record<string, unknown>, opts: ToolOptions): Prom
 }
 
 async function writeFile(input: Record<string, unknown>, opts: ToolOptions): Promise<string> {
-  const filePath = resolvePath(input['path'] as string, opts)
-  const rawContent = input['content'] as string
+  const rawPath = (input['path'] ?? input['file_path'] ?? '') as string
+  if (!rawPath) return 'ERROR: path is required'
+  const filePath = resolvePath(rawPath, opts)
+  const rawContent = (input['content'] ?? '') as string
+  if (!rawContent) return 'ERROR: content is required'
 
   const result = scrub(rawContent, filePath)
   if (result.hadSecrets) {
@@ -115,7 +120,8 @@ async function editFile(input: Record<string, unknown>, opts: ToolOptions): Prom
 }
 
 async function runBash(input: Record<string, unknown>, opts: ToolOptions): Promise<string> {
-  const command = input['command'] as string
+  const command = (input['command'] ?? '') as string
+  if (!command) return 'ERROR: command is required'
   const timeoutMs = Math.min((input['timeout_ms'] as number) ?? 30000, 30000)
 
   try {
@@ -222,13 +228,19 @@ export async function executeTool(
       case 'ls':
         return await withTimeout(() => listDir(input, opts), TOOL_TIMEOUT, name)
       case 'glob': {
-        // Sanitize pattern
-        const globPat = String(input['pattern'] ?? '*').replace(/[;&|`$(){}]/g, '')
-        return await withTimeout(() => runBash({ command: `find . -name '${globPat}' -not -path '*/node_modules/*' -not -path '*/.git/*' | head -20` }, opts), TOOL_TIMEOUT, name)
+        const globPat = String(input['pattern'] ?? '*').replace(/[^a-zA-Z0-9_.*?\-\/]/g, '')
+        try {
+          const r = Bun.spawnSync(['find', '.', '-name', globPat, '-not', '-path', '*/node_modules/*', '-not', '-path', '*/.git/*'], { cwd: opts.cwd, timeout: 10000, stdout: 'pipe' })
+          return r.stdout.toString().split('\n').filter(Boolean).slice(0, 20).join('\n') || 'No matches'
+        } catch { return 'ERROR: glob failed' }
       }
       case 'grep': {
-        const grepPat = String(input['pattern'] ?? '').replace(/[;&|`$(){}]/g, '')
-        return await withTimeout(() => runBash({ command: `grep -rn '${grepPat}' --include='*.ts' --include='*.tsx' --include='*.js' --include='*.html' --include='*.css' -l . 2>/dev/null | head -20` }, opts), TOOL_TIMEOUT, name)
+        const grepPat = String(input['pattern'] ?? '').replace(/[^a-zA-Z0-9_.*?\-\s\/\\]/g, '')
+        if (!grepPat) return 'ERROR: pattern is required'
+        try {
+          const r = Bun.spawnSync(['grep', '-rn', grepPat, '--include=*.ts', '--include=*.tsx', '--include=*.js', '--include=*.html', '--include=*.css', '-l', '.'], { cwd: opts.cwd, timeout: 10000, stdout: 'pipe', stderr: 'pipe' })
+          return r.stdout.toString().split('\n').filter(Boolean).slice(0, 20).join('\n') || 'No matches'
+        } catch { return 'ERROR: grep failed' }
       }
       case 'web_fetch':
         return await withTimeout(() => executeWebTool('web_fetch', input), 15_000, name)

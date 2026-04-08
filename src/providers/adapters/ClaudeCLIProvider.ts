@@ -82,28 +82,40 @@ export class ClaudeCLIProvider implements HexProvider {
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
-    this.proc.on('exit', () => {
-      this.proc = null
-      this.procReady = false
-    })
-
-    this.proc.stderr?.on('data', () => {}) // drain stderr
-
     this.procReady = true
     this.buffer = ''
+
+    this.proc.on('exit', () => {
+      this.procReady = false
+      this.proc = null
+    })
+
+    // Drain stderr to prevent pipe buffer deadlock
+    this.proc.stderr?.on('data', () => {})
+
     return this.proc
   }
 
   private async *streamViaPersistentProcess(opts: StreamOptions): AsyncIterable<StreamEvent> {
-    const proc = this.ensureProcess(opts)
+    let proc: ChildProcess
+    try {
+      proc = this.ensureProcess(opts)
+    } catch (err) {
+      yield { type: 'error', error: `Failed to start claude: ${err instanceof Error ? err.message : String(err)}` }
+      return
+    }
 
-    // Send message via stdin as JSON
-    const userMessage = JSON.stringify({
-      type: 'user',
-      content: opts.prompt,
-    }) + '\n'
+    if (!proc.stdin || !proc.stdout) {
+      yield { type: 'error', error: 'Process stdin/stdout not available' }
+      return
+    }
 
-    proc.stdin?.write(userMessage)
+    // Send message via stdin as JSON with backpressure handling
+    const userMessage = JSON.stringify({ type: 'user', content: opts.prompt }) + '\n'
+    const canWrite = proc.stdin.write(userMessage)
+    if (!canWrite) {
+      await new Promise<void>(resolve => proc.stdin!.once('drain', resolve))
+    }
 
     let turn = 0
     let hasStreamedTokens = false
@@ -169,9 +181,10 @@ export class ClaudeCLIProvider implements HexProvider {
   }
 
   private async *readLines(proc: ChildProcess): AsyncIterable<string> {
+    if (!proc.stdout) return
     let buffer = ''
 
-    for await (const chunk of proc.stdout!) {
+    for await (const chunk of proc.stdout) {
       buffer += chunk.toString()
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
