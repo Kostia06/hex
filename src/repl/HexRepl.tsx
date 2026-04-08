@@ -588,6 +588,18 @@ export function HexRepl({ initialPrompt, budgetUsd, maxTurns = 50, cwd }: HexRep
       return
     }
 
+    // Intercept "open X and inspect" — handle directly, no AI needed
+    const openInspectMatch = prompt.match(/^open\s+(\S+\.html?)\s*(and\s+inspect|inspect)?\s*/i)
+    if (openInspectMatch) {
+      const file = openInspectMatch[1]!
+      dispatch({ type: 'SET_INPUT', value: prompt })
+      dispatch({ type: 'SUBMIT_INPUT' })
+      autoStartInspector()
+      Bun.spawnSync(['open', `http://localhost:4000`])
+      dispatch({ type: 'ADD_SYSTEM', content: `Opened ${file} \u00B7 http://localhost:4000` })
+      return
+    }
+
     await submitPrompt(prompt)
   }, [state.isStreaming, pendingConfirm, submitPrompt, exit])
 

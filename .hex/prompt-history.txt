@@ -48,3 +48,4 @@ Selected elements: <body> text: "Hex Inspector Demo
 
   <div data-hex-file="index.html" data-hex-line="225" data-hex-id="hex-div-001" class="section"
 Devtools: Page load: 88ms, TTFB: 2ms
+open index.html and inspect it
